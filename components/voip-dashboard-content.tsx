@@ -292,6 +292,17 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         return compact.replace(/\+/g, "")
     }
 
+    const sanitizeCallableNumber = (value: any): string => {
+        if (!value || typeof value !== "string" || isPlaceholder(value)) return ""
+        const trimmed = value.trim()
+        if (!trimmed) return ""
+
+        const digits = trimmed.replace(/\D/g, "")
+        if (!digits) return ""
+
+        return trimmed.startsWith("+") ? `+${digits}` : digits
+    }
+
     // Helper: callerOf(call)
     const callerOf = (call: any) => {
         if (!call) return dialedNumberRef.current || "Unknown"
@@ -1543,7 +1554,15 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
     // Dial action matching portal.js
     const dial = async (number?: string) => {
         const rawTarget = (number || dialNumber || "").trim()
-        if (!rawTarget) return
+        const target = sanitizeCallableNumber(rawTarget)
+        if (!target) {
+            const message = rawTarget ? "Enter a valid telephone number." : ""
+            if (message) {
+                setCallError(message)
+                setStatusDetail(message)
+            }
+            return
+        }
         if (isDialingRef.current) return
 
         if (!clientRef.current || !clientReadyRef.current) {
@@ -1574,12 +1593,12 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                 throw new Error("Phone is not ready yet. Wait for the Online badge, then try again.")
             }
 
-            dialedNumberRef.current = rawTarget
+            dialedNumberRef.current = target
             setStatusDetail("Starting call...")
 
             const call = client.newCall({
-                destinationNumber: rawTarget,
-                remoteCallerName: rawTarget,
+                destinationNumber: target,
+                remoteCallerName: target,
                 callerNumber: cfgRef.current.callerId || undefined,
                 remoteElement: "remoteAudio",
                 audio: true,
@@ -1627,13 +1646,23 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
     }
 
     const doTransfer = async (body: { extension_uid?: string; number?: string }) => {
+        const cleanBody = body.number
+            ? { ...body, number: sanitizeCallableNumber(body.number) }
+            : body
+
+        if (body.number && !cleanBody.number) {
+            setTransferMsg("Enter a valid outside number.")
+            return
+        }
+
         setTransferMsg("Transferring…")
         setIsTransferring(true)
         try {
             await api(cfgRef.current.transferUrl, {
                 method: "POST",
-                body: JSON.stringify(body)
+                body: JSON.stringify(cleanBody)
             })
+            if (cleanBody.number) setTransferNumber(cleanBody.number)
             setTransferMsg("Transferred.")
         } catch (e: any) {
             setTransferMsg(e.message || "Transfer failed")
