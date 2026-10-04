@@ -32,7 +32,9 @@ import {
     RefreshCw,
     UserPlus,
     History,
-    Database
+    Database,
+    ChevronLeft,
+    ChevronRight
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -182,6 +184,23 @@ interface ContactItem {
     status?: string;
 }
 
+interface AtsPlatformItem {
+    id?: number;
+    uid: string;
+    is_connected?: boolean;
+    status?: string;
+    platform?: {
+        id?: number;
+        uid?: string;
+        name?: string;
+        slug?: string;
+        logo?: string | null;
+        status?: string;
+    } | number;
+    platform_name?: string;
+    name?: string;
+}
+
 interface ContactHistoryCall {
     uid: string;
     direction: "inbound" | "outbound";
@@ -200,6 +219,8 @@ interface ContactHistoryCall {
 interface VoipDashboardContentProps {
     flowUid?: string;
 }
+
+const CONTACTS_PAGE_SIZE = 10
 
 export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
     const router = useRouter()
@@ -232,6 +253,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
     const [isDialing, setIsDialing] = useState(false)
     const [dialNumber, setDialNumber] = useState("")
     const [currentTab, setCurrentTab] = useState<"recent" | "missed" | "voicemail">("recent")
+    const [mobilePanel, setMobilePanel] = useState<"phone" | "contacts">("phone")
 
     // Active & Incoming Call States
     const [incomingCall, setIncomingCall] = useState<any | null>(null)
@@ -264,6 +286,11 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
     const [contactsLoading, setContactsLoading] = useState(false)
     const [contactsError, setContactsError] = useState<string | null>(null)
     const [contactSearch, setContactSearch] = useState("")
+    const [contactOriginFilter, setContactOriginFilter] = useState<"all" | "candidate" | "contact" | "manual">("all")
+    const [contactsPage, setContactsPage] = useState(1)
+    const [contactsCount, setContactsCount] = useState(0)
+    const [contactsNext, setContactsNext] = useState<string | null>(null)
+    const [contactsPrevious, setContactsPrevious] = useState<string | null>(null)
     const [selectedContactId, setSelectedContactId] = useState<number | null>(null)
     const [selectedContact, setSelectedContact] = useState<ContactItem | null>(null)
     const [contactCalls, setContactCalls] = useState<ContactHistoryCall[]>([])
@@ -272,6 +299,10 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
     const [contactFormOpen, setContactFormOpen] = useState(false)
     const [contactSaving, setContactSaving] = useState(false)
     const [atsFetching, setAtsFetching] = useState(false)
+    const [atsPlatforms, setAtsPlatforms] = useState<AtsPlatformItem[]>([])
+    const [atsLoading, setAtsLoading] = useState(false)
+    const [atsError, setAtsError] = useState<string | null>(null)
+    const [selectedAtsUid, setSelectedAtsUid] = useState("")
     const [newContact, setNewContact] = useState({
         name: "",
         email: "",
@@ -1042,6 +1073,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
     }, [VOICE_BASE])
 
     const CONTACTS_URL = useMemo(() => `${VOICE_BASE}/contacts/`, [VOICE_BASE])
+    const MY_PLATFORMS_URL = useMemo(() => `${VOICE_BASE}/organizations/platform/my_platforms`, [VOICE_BASE])
 
     const contactDisplayName = useCallback((contact?: ContactItem | null) => {
         if (!contact) return "Unknown contact"
@@ -1055,6 +1087,52 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         if (Array.isArray(payload)) return payload
         return []
     }, [])
+
+    const extractAtsPlatforms = useCallback((payload: any): AtsPlatformItem[] => {
+        const records = Array.isArray(payload?.results)
+            ? payload.results
+            : Array.isArray(payload?.platforms)
+            ? payload.platforms
+            : Array.isArray(payload)
+            ? payload
+            : []
+
+        return records.filter((platform: AtsPlatformItem) => platform?.is_connected !== false)
+    }, [])
+
+    const atsPlatformName = useCallback((platform?: AtsPlatformItem | null) => {
+        if (!platform) return ""
+        if (typeof platform.platform === "object" && platform.platform?.name) {
+            return platform.platform.name
+        }
+        return platform.platform_name || platform.name || ""
+    }, [])
+
+    const isJobAdderPlatform = useCallback((platform?: AtsPlatformItem | null) => {
+        const name = atsPlatformName(platform).trim().toLowerCase()
+        const slug = typeof platform?.platform === "object" ? platform.platform?.slug?.toLowerCase() : ""
+        return name === "jobadder" || slug === "jobadder"
+    }, [atsPlatformName])
+
+    const loadAtsPlatforms = useCallback(async () => {
+        setAtsLoading(true)
+        setAtsError(null)
+        try {
+            const data = await api(MY_PLATFORMS_URL)
+            const platforms = extractAtsPlatforms(data)
+            setAtsPlatforms(platforms)
+            setSelectedAtsUid(current => {
+                if (current && platforms.some(platform => platform.uid === current && isJobAdderPlatform(platform))) return current
+                return platforms.find(platform => isJobAdderPlatform(platform))?.uid || ""
+            })
+        } catch (e: any) {
+            setAtsPlatforms([])
+            setSelectedAtsUid("")
+            setAtsError(e.message || "Could not load connected ATS platforms")
+        } finally {
+            setAtsLoading(false)
+        }
+    }, [MY_PLATFORMS_URL, extractAtsPlatforms, isJobAdderPlatform])
 
     const loadContactHistory = useCallback(async (contactId: number) => {
         setContactCallsLoading(true)
@@ -1070,23 +1148,38 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         }
     }, [CONTACTS_URL])
 
-    const loadContacts = useCallback(async () => {
+    const loadContacts = useCallback(async (page = contactsPage) => {
         setContactsLoading(true)
         setContactsError(null)
         try {
-            const data = await api(CONTACTS_URL)
+            const params = new URLSearchParams({
+                page: String(page),
+                page_size: String(CONTACTS_PAGE_SIZE)
+            })
+            const search = contactSearch.trim()
+            if (search) params.set("search", search)
+            if (contactOriginFilter !== "all") params.set("origin", contactOriginFilter)
+
+            const data = await api(`${CONTACTS_URL}?${params.toString()}`)
             const contacts = extractContacts(data)
             setContactsList(contacts)
+            setContactsCount(Number(data?.count ?? contacts.length))
+            setContactsNext(data?.next || null)
+            setContactsPrevious(data?.previous || null)
             setSelectedContactId(current => {
                 if (current && contacts.some(contact => contact.id === current)) return current
                 return contacts[0]?.id || null
             })
         } catch (e: any) {
             setContactsError(e.message || "Could not load contacts")
+            setContactsList([])
+            setContactsCount(0)
+            setContactsNext(null)
+            setContactsPrevious(null)
         } finally {
             setContactsLoading(false)
         }
-    }, [CONTACTS_URL, extractContacts])
+    }, [CONTACTS_URL, contactOriginFilter, contactSearch, contactsPage, extractContacts])
 
     const createContact = async () => {
         const payload = {
@@ -1111,7 +1204,9 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
             setNewContact({ name: "", email: "", phone: "", company_name: "" })
             setContactFormOpen(false)
             setContactNotice("Contact created.")
-            await loadContacts()
+            setContactOriginFilter("all")
+            setContactsPage(1)
+            await loadContacts(1)
             if (created?.id) setSelectedContactId(created.id)
         } catch (e: any) {
             setContactNotice(e.message || "Could not create contact")
@@ -1121,13 +1216,27 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
     }
 
     const fetchAtsContacts = async () => {
+        const selectedPlatform = atsPlatforms.find(platform => platform.uid === selectedAtsUid) || null
+        if (!selectedPlatform) {
+            setContactNotice("Select a connected ATS first.")
+            return
+        }
+
+        if (!isJobAdderPlatform(selectedPlatform)) {
+            setContactNotice("Only JobAdder contact fetching is currently supported.")
+            return
+        }
+
         setAtsFetching(true)
         setContactNotice(null)
         try {
-            const data = await api(`${VOICE_BASE}/contacts/fetch`, { method: "POST" })
+            const data = await api(`${VOICE_BASE}/contacts/fetch`, {
+                method: "POST",
+                body: JSON.stringify({ platform_uid: selectedAtsUid })
+            })
             setContactNotice(data.detail || "Contact fetching started.")
             setTimeout(() => {
-                void loadContacts()
+                void loadContacts(contactsPage)
             }, 4000)
         } catch (e: any) {
             setContactNotice(e.message || "Could not start contact fetch")
@@ -1902,7 +2011,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         // Connect WebRTC and fetch initial list
         connect()
         refreshList()
-        loadContacts()
+        loadAtsPlatforms()
 
         // 15s refresh interval
         const listInterval = setInterval(refreshList, 15000)
@@ -1960,12 +2069,21 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                 } catch (e) { }
             }
         }
-    }, [flowUid, refreshList, loadContacts])
+    }, [flowUid, refreshList, loadAtsPlatforms])
 
     // Re-fetch list on tab change
     useEffect(() => {
         refreshList()
     }, [currentTab, refreshList])
+
+    useEffect(() => {
+        const delay = contactSearch.trim() ? 350 : 0
+        const timer = setTimeout(() => {
+            void loadContacts(contactsPage)
+        }, delay)
+
+        return () => clearTimeout(timer)
+    }, [contactOriginFilter, contactSearch, contactsPage, loadContacts])
 
     useEffect(() => {
         if (!selectedContactId) {
@@ -1980,23 +2098,9 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         ? callsList.filter(c => c.direction === "inbound" && c.status === "missed")
         : callsList
 
-    const filteredContacts = useMemo(() => {
-        const needle = contactSearch.trim().toLowerCase()
-        if (!needle) return contactsList
-        return contactsList.filter(contact => {
-            const haystack = [
-                contactDisplayName(contact),
-                contact.email,
-                contact.phone,
-                contact.company_name,
-                contact.origin,
-                contact.source_name,
-                contact.external_id,
-                contact.candidate_id
-            ].filter(Boolean).join(" ").toLowerCase()
-            return haystack.includes(needle)
-        })
-    }, [contactSearch, contactsList, contactDisplayName])
+    const totalContactPages = Math.max(1, Math.ceil(contactsCount / CONTACTS_PAGE_SIZE))
+    const contactRangeStart = contactsCount === 0 ? 0 : (contactsPage - 1) * CONTACTS_PAGE_SIZE + 1
+    const contactRangeEnd = contactsCount === 0 ? 0 : Math.min(contactsCount, contactRangeStart + contactsList.length - 1)
 
     const arrow = { inbound: "↙", outbound: "↗" }
 
@@ -2159,6 +2263,14 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         const originLabel = currentContact?.origin
             ? currentContact.origin.replace(/_/g, " ")
             : "manual"
+        const selectedAtsPlatform = atsPlatforms.find(platform => platform.uid === selectedAtsUid) || null
+        const selectedAtsIsJobAdder = isJobAdderPlatform(selectedAtsPlatform)
+        const originFilterOptions: Array<{ value: "all" | "candidate" | "contact" | "manual"; label: string }> = [
+            { value: "all", label: "All" },
+            { value: "candidate", label: "Candidates" },
+            { value: "contact", label: "Contacts" },
+            { value: "manual", label: "Manual" }
+        ]
 
         return (
             <Card className="border border-border/70 bg-card shadow-sm overflow-hidden">
@@ -2171,7 +2283,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                                     <h2 className="text-base font-bold text-foreground">Contacts</h2>
                                 </div>
                                 <div className="mt-1 text-xs text-muted-foreground">
-                                    {contactsList.length} saved
+                                    {contactsCount} saved
                                     {currentContact ? ` · ${contactDisplayName(currentContact)}` : ""}
                                 </div>
                             </div>
@@ -2192,20 +2304,6 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                                 </Button>
                                 <Button
                                     size="sm"
-                                    variant="secondary"
-                                    className="h-8 gap-1.5 text-xs"
-                                    onClick={fetchAtsContacts}
-                                    disabled={atsFetching}
-                                >
-                                    {atsFetching ? (
-                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                    ) : (
-                                        <Database className="w-3.5 h-3.5" />
-                                    )}
-                                    Fetch ATS
-                                </Button>
-                                <Button
-                                    size="sm"
                                     className="h-8 gap-1.5 text-xs"
                                     onClick={() => setContactFormOpen(open => !open)}
                                 >
@@ -2220,6 +2318,61 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                                 {contactNotice}
                             </div>
                         )}
+
+                        <div className="rounded-xl border border-border/70 bg-muted/25 p-3 space-y-2">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                <div className="min-w-0 flex items-center gap-2 sm:w-36">
+                                    <Database className="w-4 h-4 text-primary shrink-0" />
+                                    <span className="text-xs font-semibold text-foreground">Connected ATS</span>
+                                </div>
+                                <select
+                                    className="min-w-0 flex-1 h-9 rounded-lg border border-input bg-background px-3 text-xs font-medium text-foreground shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                                    value={selectedAtsUid}
+                                    onChange={e => {
+                                        setSelectedAtsUid(e.target.value)
+                                        setContactNotice(null)
+                                    }}
+                                    disabled={atsLoading || atsFetching}
+                                >
+                                    <option value="">
+                                        {atsLoading ? "Loading ATS..." : "Select ATS"}
+                                    </option>
+                                    {atsPlatforms.map(platform => {
+                                        const name = atsPlatformName(platform) || "Connected ATS"
+                                        const supported = isJobAdderPlatform(platform)
+                                        return (
+                                            <option key={platform.uid} value={platform.uid} disabled={!supported}>
+                                                {name}{supported ? "" : " (coming soon)"}
+                                            </option>
+                                        )
+                                    })}
+                                </select>
+                                <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    className="h-9 gap-1.5 text-xs sm:w-auto"
+                                    onClick={fetchAtsContacts}
+                                    disabled={atsFetching || atsLoading || !selectedAtsUid || !selectedAtsIsJobAdder}
+                                >
+                                    {atsFetching ? (
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                        <Database className="w-3.5 h-3.5" />
+                                    )}
+                                    Fetch
+                                </Button>
+                            </div>
+                            {atsError && (
+                                <div className="text-xs font-medium text-rose-600 dark:text-rose-400">
+                                    {atsError}
+                                </div>
+                            )}
+                            {!atsLoading && atsPlatforms.length === 0 && !atsError && (
+                                <div className="text-xs text-muted-foreground">
+                                    No connected ATS platforms found.
+                                </div>
+                            )}
+                        </div>
 
                         {contactFormOpen && (
                             <div className="rounded-xl border border-border/70 bg-muted/30 p-3 space-y-2">
@@ -2284,8 +2437,31 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                                 placeholder="Search contacts"
                                 className="h-10 pl-9 text-sm rounded-xl"
                                 value={contactSearch}
-                                onChange={e => setContactSearch(e.target.value)}
+                                onChange={e => {
+                                    setContactSearch(e.target.value)
+                                    setContactsPage(1)
+                                }}
                             />
+                        </div>
+
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                            {originFilterOptions.map(option => (
+                                <button
+                                    key={option.value}
+                                    type="button"
+                                    onClick={() => {
+                                        setContactOriginFilter(option.value)
+                                        setContactsPage(1)
+                                    }}
+                                    className={`h-8 rounded-lg border px-2 text-xs font-semibold transition-colors ${
+                                        contactOriginFilter === option.value
+                                            ? "border-primary/40 bg-primary/10 text-primary"
+                                            : "border-border/60 bg-background/50 text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                                    }`}
+                                >
+                                    {option.label}
+                                </button>
+                            ))}
                         </div>
                     </div>
 
@@ -2302,13 +2478,13 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                                         <Loader2 className="w-4 h-4 animate-spin" />
                                         Loading contacts
                                     </div>
-                                ) : filteredContacts.length === 0 ? (
+                                ) : contactsList.length === 0 ? (
                                     <div className="p-6 text-center text-xs text-muted-foreground flex flex-col items-center gap-2">
                                         <Users className="w-8 h-8 text-muted-foreground/40" />
                                         <span>No contacts found</span>
                                     </div>
                                 ) : (
-                                    filteredContacts.map(contact => {
+                                    contactsList.map(contact => {
                                         const active = contact.id === selectedContactId
                                         return (
                                             <button
@@ -2338,6 +2514,40 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                                         )
                                     })
                                 )}
+                            </div>
+                            <div className="border-t border-border/70 p-2">
+                                <div className="flex items-center justify-between gap-2">
+                                    <div className="text-[11px] text-muted-foreground">
+                                        {contactsCount > 0
+                                            ? `${contactRangeStart}-${contactRangeEnd} of ${contactsCount}`
+                                            : "0 contacts"}
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                        <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            className="h-8 w-8 p-0"
+                                            onClick={() => setContactsPage(page => Math.max(1, page - 1))}
+                                            disabled={contactsLoading || !contactsPrevious || contactsPage <= 1}
+                                            title="Previous contacts page"
+                                        >
+                                            <ChevronLeft className="w-4 h-4" />
+                                        </Button>
+                                        <span className="min-w-14 text-center text-[11px] font-medium text-muted-foreground">
+                                            {contactsPage}/{totalContactPages}
+                                        </span>
+                                        <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            className="h-8 w-8 p-0"
+                                            onClick={() => setContactsPage(page => page + 1)}
+                                            disabled={contactsLoading || !contactsNext || contactsPage >= totalContactPages}
+                                            title="Next contacts page"
+                                        >
+                                            <ChevronRight className="w-4 h-4" />
+                                        </Button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
@@ -2471,8 +2681,35 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                     </Button>
                 </div>
 
+                <div className="xl:hidden grid grid-cols-2 gap-1 rounded-xl border border-border/60 bg-muted/50 p-1">
+                    <button
+                        type="button"
+                        onClick={() => setMobilePanel("phone")}
+                        className={`h-10 rounded-lg inline-flex items-center justify-center gap-2 text-xs font-semibold transition-colors ${
+                            mobilePanel === "phone"
+                                ? "bg-background text-foreground shadow-sm"
+                                : "text-muted-foreground hover:text-foreground"
+                        }`}
+                    >
+                        <Phone className="w-4 h-4" />
+                        Calling
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setMobilePanel("contacts")}
+                        className={`h-10 rounded-lg inline-flex items-center justify-center gap-2 text-xs font-semibold transition-colors ${
+                            mobilePanel === "contacts"
+                                ? "bg-background text-foreground shadow-sm"
+                                : "text-muted-foreground hover:text-foreground"
+                        }`}
+                    >
+                        <Users className="w-4 h-4" />
+                        Contacts
+                    </button>
+                </div>
+
                 <div className="grid grid-cols-1 xl:grid-cols-[minmax(360px,520px)_minmax(0,1fr)] gap-4 items-start">
-                    <div className="min-w-0 space-y-4">
+                    <div className={`min-w-0 space-y-4 ${mobilePanel === "phone" ? "block" : "hidden"} xl:block`}>
                 {/* Header matching HTML template */}
                 <div className="p-4 rounded-2xl border border-border/70 bg-card shadow-sm space-y-2">
                     <div className="flex items-center justify-between">
@@ -2915,8 +3152,12 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                                                             isMissed ? "text-rose-600 dark:text-rose-400" : "text-foreground"
                                                         }`}
                                                         onClick={() => {
-                                                            if (c.contact_id) setSelectedContactId(c.contact_id)
-                                                            else setDialNumber(c.number)
+                                                            if (c.contact_id) {
+                                                                setSelectedContactId(c.contact_id)
+                                                                setMobilePanel("contacts")
+                                                            } else {
+                                                                setDialNumber(c.number)
+                                                            }
                                                         }}
                                                         title={c.contact_id ? "Open contact" : "Click to dial number"}
                                                     >
@@ -2959,7 +3200,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                 </p>
                     </div>
 
-                    <div className="min-w-0 xl:sticky xl:top-4">
+                    <div className={`min-w-0 ${mobilePanel === "contacts" ? "block" : "hidden"} xl:block xl:sticky xl:top-4`}>
                         {renderContactsPanel()}
                     </div>
                 </div>
