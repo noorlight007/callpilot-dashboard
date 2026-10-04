@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect, useRef, useCallback } from "react"
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { BASE_URL } from "@/lib/baseUrl"
 import { cookieUtils } from "@/services/auth-service"
@@ -26,7 +26,13 @@ import {
     Mail,
     MapPin,
     UserRound,
-    Users
+    Users,
+    Search,
+    Plus,
+    RefreshCw,
+    UserPlus,
+    History,
+    Database
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -39,6 +45,7 @@ interface CallItem {
     direction: "inbound" | "outbound";
     status: string;
     number: string;
+    contact_id?: number | null;
     contact_name?: string | null;
     started_at: string;
     duration: number;
@@ -160,6 +167,36 @@ interface CallerLookupOption {
     record: JobAdderCandidate | JobAdderContact;
 }
 
+interface ContactItem {
+    id: number;
+    first_name?: string;
+    last_name?: string;
+    full_name?: string;
+    phone?: string | null;
+    email?: string;
+    company_name?: string;
+    source_name?: string | null;
+    origin?: string | null;
+    external_id?: string | null;
+    candidate_id?: string | null;
+    status?: string;
+}
+
+interface ContactHistoryCall {
+    uid: string;
+    direction: "inbound" | "outbound";
+    number: string;
+    status: string;
+    started_at: string;
+    answered_at?: string | null;
+    ended_at?: string | null;
+    duration: number;
+    handled_by?: string | null;
+    has_voicemail?: boolean;
+    has_recording?: boolean;
+    hangup_cause?: string;
+}
+
 interface VoipDashboardContentProps {
     flowUid?: string;
 }
@@ -221,6 +258,26 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
     const [voicemailsList, setVoicemailsList] = useState<VoicemailItem[]>([])
     const [unreadVoicemails, setUnreadVoicemails] = useState<number>(0)
     const [listErrorMessage, setListErrorMessage] = useState<string | null>(null)
+
+    // Contacts
+    const [contactsList, setContactsList] = useState<ContactItem[]>([])
+    const [contactsLoading, setContactsLoading] = useState(false)
+    const [contactsError, setContactsError] = useState<string | null>(null)
+    const [contactSearch, setContactSearch] = useState("")
+    const [selectedContactId, setSelectedContactId] = useState<number | null>(null)
+    const [selectedContact, setSelectedContact] = useState<ContactItem | null>(null)
+    const [contactCalls, setContactCalls] = useState<ContactHistoryCall[]>([])
+    const [contactCallsLoading, setContactCallsLoading] = useState(false)
+    const [contactNotice, setContactNotice] = useState<string | null>(null)
+    const [contactFormOpen, setContactFormOpen] = useState(false)
+    const [contactSaving, setContactSaving] = useState(false)
+    const [atsFetching, setAtsFetching] = useState(false)
+    const [newContact, setNewContact] = useState({
+        name: "",
+        email: "",
+        phone: "",
+        company_name: ""
+    })
 
     // Refs for SDK and Audio lifecycle
     const clientRef = useRef<any>(null)
@@ -491,7 +548,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         })
         const data = await res.json().catch(() => ({}))
         if (!res.ok) {
-            throw new Error(data.error || `HTTP ${res.status}`)
+            throw new Error(data.error || data.detail || `HTTP ${res.status}`)
         }
         return data
     }
@@ -983,6 +1040,101 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
             setListErrorMessage(e.message || "Failed to load calls")
         }
     }, [VOICE_BASE])
+
+    const CONTACTS_URL = useMemo(() => `${VOICE_BASE}/contacts/`, [VOICE_BASE])
+
+    const contactDisplayName = useCallback((contact?: ContactItem | null) => {
+        if (!contact) return "Unknown contact"
+        const name = contact.full_name || [contact.first_name, contact.last_name].filter(Boolean).join(" ").trim()
+        return name || contact.email || contact.phone || "Unknown contact"
+    }, [])
+
+    const extractContacts = useCallback((payload: any): ContactItem[] => {
+        if (Array.isArray(payload?.results)) return payload.results
+        if (Array.isArray(payload?.contacts)) return payload.contacts
+        if (Array.isArray(payload)) return payload
+        return []
+    }, [])
+
+    const loadContactHistory = useCallback(async (contactId: number) => {
+        setContactCallsLoading(true)
+        try {
+            const data = await api(`${CONTACTS_URL}${contactId}/calls`)
+            setSelectedContact(data.contact || null)
+            setContactCalls(Array.isArray(data.calls) ? data.calls : [])
+        } catch (e: any) {
+            setContactCalls([])
+            setContactNotice(e.message || "Could not load contact calls")
+        } finally {
+            setContactCallsLoading(false)
+        }
+    }, [CONTACTS_URL])
+
+    const loadContacts = useCallback(async () => {
+        setContactsLoading(true)
+        setContactsError(null)
+        try {
+            const data = await api(CONTACTS_URL)
+            const contacts = extractContacts(data)
+            setContactsList(contacts)
+            setSelectedContactId(current => {
+                if (current && contacts.some(contact => contact.id === current)) return current
+                return contacts[0]?.id || null
+            })
+        } catch (e: any) {
+            setContactsError(e.message || "Could not load contacts")
+        } finally {
+            setContactsLoading(false)
+        }
+    }, [CONTACTS_URL, extractContacts])
+
+    const createContact = async () => {
+        const payload = {
+            name: newContact.name.trim(),
+            email: newContact.email.trim(),
+            phone: newContact.phone.trim() || undefined,
+            company_name: newContact.company_name.trim()
+        }
+
+        if (!payload.name || !payload.email) {
+            setContactNotice("Name and email are required.")
+            return
+        }
+
+        setContactSaving(true)
+        setContactNotice(null)
+        try {
+            const created = await api(CONTACTS_URL, {
+                method: "POST",
+                body: JSON.stringify(payload)
+            })
+            setNewContact({ name: "", email: "", phone: "", company_name: "" })
+            setContactFormOpen(false)
+            setContactNotice("Contact created.")
+            await loadContacts()
+            if (created?.id) setSelectedContactId(created.id)
+        } catch (e: any) {
+            setContactNotice(e.message || "Could not create contact")
+        } finally {
+            setContactSaving(false)
+        }
+    }
+
+    const fetchAtsContacts = async () => {
+        setAtsFetching(true)
+        setContactNotice(null)
+        try {
+            const data = await api(`${VOICE_BASE}/contacts/fetch`, { method: "POST" })
+            setContactNotice(data.detail || "Contact fetching started.")
+            setTimeout(() => {
+                void loadContacts()
+            }, 4000)
+        } catch (e: any) {
+            setContactNotice(e.message || "Could not start contact fetch")
+        } finally {
+            setAtsFetching(false)
+        }
+    }
 
     // Incoming Call UI handling
     const showIncoming = (call: any) => {
@@ -1750,6 +1902,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         // Connect WebRTC and fetch initial list
         connect()
         refreshList()
+        loadContacts()
 
         // 15s refresh interval
         const listInterval = setInterval(refreshList, 15000)
@@ -1807,16 +1960,43 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                 } catch (e) { }
             }
         }
-    }, [flowUid, refreshList])
+    }, [flowUid, refreshList, loadContacts])
 
     // Re-fetch list on tab change
     useEffect(() => {
         refreshList()
     }, [currentTab, refreshList])
 
+    useEffect(() => {
+        if (!selectedContactId) {
+            setSelectedContact(null)
+            setContactCalls([])
+            return
+        }
+        void loadContactHistory(selectedContactId)
+    }, [selectedContactId, loadContactHistory])
+
     const filteredCalls = currentTab === "missed"
         ? callsList.filter(c => c.direction === "inbound" && c.status === "missed")
         : callsList
+
+    const filteredContacts = useMemo(() => {
+        const needle = contactSearch.trim().toLowerCase()
+        if (!needle) return contactsList
+        return contactsList.filter(contact => {
+            const haystack = [
+                contactDisplayName(contact),
+                contact.email,
+                contact.phone,
+                contact.company_name,
+                contact.origin,
+                contact.source_name,
+                contact.external_id,
+                contact.candidate_id
+            ].filter(Boolean).join(" ").toLowerCase()
+            return haystack.includes(needle)
+        })
+    }, [contactSearch, contactsList, contactDisplayName])
 
     const arrow = { inbound: "↙", outbound: "↗" }
 
@@ -1973,9 +2153,311 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         )
     }
 
+    const renderContactsPanel = () => {
+        const currentContact = selectedContact || contactsList.find(contact => contact.id === selectedContactId) || null
+        const selectedPhone = currentContact?.phone || ""
+        const originLabel = currentContact?.origin
+            ? currentContact.origin.replace(/_/g, " ")
+            : "manual"
+
+        return (
+            <Card className="border border-border/70 bg-card shadow-sm overflow-hidden">
+                <CardContent className="p-0">
+                    <div className="border-b border-border/70 p-4 space-y-3">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                    <Users className="w-4 h-4 text-primary" />
+                                    <h2 className="text-base font-bold text-foreground">Contacts</h2>
+                                </div>
+                                <div className="mt-1 text-xs text-muted-foreground">
+                                    {contactsList.length} saved
+                                    {currentContact ? ` · ${contactDisplayName(currentContact)}` : ""}
+                                </div>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 gap-1.5 text-xs"
+                                    onClick={() => void loadContacts()}
+                                    disabled={contactsLoading}
+                                >
+                                    {contactsLoading ? (
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                        <RefreshCw className="w-3.5 h-3.5" />
+                                    )}
+                                    Refresh
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    className="h-8 gap-1.5 text-xs"
+                                    onClick={fetchAtsContacts}
+                                    disabled={atsFetching}
+                                >
+                                    {atsFetching ? (
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                        <Database className="w-3.5 h-3.5" />
+                                    )}
+                                    Fetch ATS
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    className="h-8 gap-1.5 text-xs"
+                                    onClick={() => setContactFormOpen(open => !open)}
+                                >
+                                    <Plus className="w-3.5 h-3.5" />
+                                    New
+                                </Button>
+                            </div>
+                        </div>
+
+                        {contactNotice && (
+                            <div className="rounded-lg border border-border/70 bg-muted/35 px-3 py-2 text-xs font-medium text-muted-foreground">
+                                {contactNotice}
+                            </div>
+                        )}
+
+                        {contactFormOpen && (
+                            <div className="rounded-xl border border-border/70 bg-muted/30 p-3 space-y-2">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    <Input
+                                        placeholder="Name"
+                                        className="h-9 text-xs"
+                                        value={newContact.name}
+                                        onChange={e => setNewContact(prev => ({ ...prev, name: e.target.value }))}
+                                    />
+                                    <Input
+                                        placeholder="Email"
+                                        type="email"
+                                        className="h-9 text-xs"
+                                        value={newContact.email}
+                                        onChange={e => setNewContact(prev => ({ ...prev, email: e.target.value }))}
+                                    />
+                                    <Input
+                                        placeholder="Phone"
+                                        inputMode="tel"
+                                        className="h-9 text-xs"
+                                        value={newContact.phone}
+                                        onChange={e => setNewContact(prev => ({ ...prev, phone: e.target.value }))}
+                                    />
+                                    <Input
+                                        placeholder="Company"
+                                        className="h-9 text-xs"
+                                        value={newContact.company_name}
+                                        onChange={e => setNewContact(prev => ({ ...prev, company_name: e.target.value }))}
+                                    />
+                                </div>
+                                <div className="flex justify-end gap-2">
+                                    <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-8 text-xs"
+                                        onClick={() => setContactFormOpen(false)}
+                                        disabled={contactSaving}
+                                    >
+                                        Cancel
+                                    </Button>
+                                    <Button
+                                        size="sm"
+                                        className="h-8 gap-1.5 text-xs"
+                                        onClick={createContact}
+                                        disabled={contactSaving}
+                                    >
+                                        {contactSaving ? (
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                        ) : (
+                                            <UserPlus className="w-3.5 h-3.5" />
+                                        )}
+                                        Save
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="relative">
+                            <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
+                            <Input
+                                placeholder="Search contacts"
+                                className="h-10 pl-9 text-sm rounded-xl"
+                                value={contactSearch}
+                                onChange={e => setContactSearch(e.target.value)}
+                            />
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 xl:grid-cols-[minmax(250px,320px)_1fr]">
+                        <div className="border-b xl:border-b-0 xl:border-r border-border/70">
+                            <div className="max-h-[420px] overflow-y-auto p-2 space-y-1.5">
+                                {contactsError ? (
+                                    <div className="p-4 text-center rounded-xl bg-muted/30">
+                                        <div className="text-sm font-semibold text-rose-600">Could not load contacts</div>
+                                        <div className="text-xs text-muted-foreground mt-0.5">{contactsError}</div>
+                                    </div>
+                                ) : contactsLoading && contactsList.length === 0 ? (
+                                    <div className="p-6 flex items-center justify-center text-xs text-muted-foreground gap-2">
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        Loading contacts
+                                    </div>
+                                ) : filteredContacts.length === 0 ? (
+                                    <div className="p-6 text-center text-xs text-muted-foreground flex flex-col items-center gap-2">
+                                        <Users className="w-8 h-8 text-muted-foreground/40" />
+                                        <span>No contacts found</span>
+                                    </div>
+                                ) : (
+                                    filteredContacts.map(contact => {
+                                        const active = contact.id === selectedContactId
+                                        return (
+                                            <button
+                                                key={contact.id}
+                                                type="button"
+                                                onClick={() => setSelectedContactId(contact.id)}
+                                                className={`w-full rounded-xl border p-3 text-left transition-all ${
+                                                    active
+                                                        ? "border-primary/40 bg-primary/5"
+                                                        : "border-border/60 bg-background/50 hover:bg-muted/40"
+                                                }`}
+                                            >
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <div className="min-w-0">
+                                                        <div className="truncate text-sm font-semibold text-foreground">
+                                                            {contactDisplayName(contact)}
+                                                        </div>
+                                                        <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                                                            {contact.company_name || contact.email || contact.phone || "No details"}
+                                                        </div>
+                                                    </div>
+                                                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 capitalize shrink-0">
+                                                        {contact.origin || "manual"}
+                                                    </Badge>
+                                                </div>
+                                            </button>
+                                        )
+                                    })
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="min-w-0 p-4 space-y-4">
+                            {currentContact ? (
+                                <>
+                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                        <div className="min-w-0">
+                                            <div className="flex items-center gap-2">
+                                                <UserRound className="w-4 h-4 text-primary shrink-0" />
+                                                <h3 className="truncate text-lg font-bold text-foreground">
+                                                    {contactDisplayName(currentContact)}
+                                                </h3>
+                                            </div>
+                                            <div className="mt-1 flex flex-wrap gap-1.5">
+                                                <Badge variant="outline" className="text-[10px] capitalize">
+                                                    {originLabel}
+                                                </Badge>
+                                                {currentContact.source_name && (
+                                                    <Badge variant="outline" className="text-[10px]">
+                                                        {currentContact.source_name}
+                                                    </Badge>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <Button
+                                            size="sm"
+                                            className="h-9 gap-1.5 text-xs shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white"
+                                            onClick={() => void dial(selectedPhone)}
+                                            disabled={!selectedPhone || isDialing || status !== "online" || !!activeCall || !!incomingCall}
+                                        >
+                                            <Phone className="w-3.5 h-3.5" />
+                                            Call
+                                        </Button>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                        {renderLookupDetail("Phone", currentContact.phone, <Phone className="w-3 h-3" />)}
+                                        {renderLookupDetail("Email", currentContact.email, <Mail className="w-3 h-3" />)}
+                                        {renderLookupDetail("Company", currentContact.company_name, <Building2 className="w-3 h-3" />)}
+                                        {renderLookupDetail("ATS ID", currentContact.external_id || currentContact.candidate_id)}
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                                <History className="w-3.5 h-3.5" />
+                                                Call history
+                                            </div>
+                                            {contactCallsLoading && (
+                                                <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                                            )}
+                                        </div>
+
+                                        {contactCalls.length === 0 && !contactCallsLoading ? (
+                                            <div className="rounded-xl border border-border/60 bg-muted/25 p-5 text-center text-xs text-muted-foreground">
+                                                No calls for this contact
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-1.5">
+                                                {contactCalls.map(call => {
+                                                    const isMissed = call.direction === "inbound" && call.status === "missed"
+                                                    return (
+                                                        <div
+                                                            key={call.uid}
+                                                            className={`rounded-xl border p-3 ${
+                                                                isMissed
+                                                                    ? "border-rose-500/20 bg-rose-500/5"
+                                                                    : "border-border/60 bg-background/50"
+                                                            }`}
+                                                        >
+                                                            <div className="flex items-start justify-between gap-3">
+                                                                <div className="min-w-0">
+                                                                    <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                                                                        {call.direction === "inbound" ? (
+                                                                            <PhoneIncoming className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                                                                        ) : (
+                                                                            <PhoneOutgoing className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                                                                        )}
+                                                                        <span className="truncate">{call.number}</span>
+                                                                    </div>
+                                                                    <div className="mt-1 text-[11px] text-muted-foreground truncate">
+                                                                        {new Date(call.started_at).toLocaleString()} · {call.status.replace("_", " ")}
+                                                                        {call.handled_by ? ` · ${call.handled_by}` : ""}
+                                                                    </div>
+                                                                </div>
+                                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                                    {call.has_voicemail && (
+                                                                        <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30 text-[10px]">
+                                                                            voicemail
+                                                                        </Badge>
+                                                                    )}
+                                                                    <span className="font-mono text-[11px] text-muted-foreground">
+                                                                        {mmss(call.duration || 0)}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    )
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="min-h-[320px] rounded-xl border border-dashed border-border/70 bg-muted/20 p-8 text-center text-sm text-muted-foreground flex flex-col items-center justify-center gap-2">
+                                    <Users className="w-10 h-10 text-muted-foreground/40" />
+                                    <span>Select or create a contact</span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
+        )
+    }
+
     return (
         <div className="flex-1 overflow-y-auto bg-background p-4 md:p-8 min-h-screen text-foreground font-sans">
-            <div className="max-w-xl mx-auto space-y-4">
+            <div className="w-full max-w-7xl mx-auto space-y-4">
                 {/* Back link */}
                 <div>
                     <Button
@@ -1989,6 +2471,8 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                     </Button>
                 </div>
 
+                <div className="grid grid-cols-1 xl:grid-cols-[minmax(360px,520px)_minmax(0,1fr)] gap-4 items-start">
+                    <div className="min-w-0 space-y-4">
                 {/* Header matching HTML template */}
                 <div className="p-4 rounded-2xl border border-border/70 bg-card shadow-sm space-y-2">
                     <div className="flex items-center justify-between">
@@ -2430,8 +2914,11 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                                                         className={`font-semibold text-xs sm:text-sm truncate hover:underline cursor-pointer flex items-center gap-1.5 ${
                                                             isMissed ? "text-rose-600 dark:text-rose-400" : "text-foreground"
                                                         }`}
-                                                        onClick={() => setDialNumber(c.number)}
-                                                        title="Click to dial number"
+                                                        onClick={() => {
+                                                            if (c.contact_id) setSelectedContactId(c.contact_id)
+                                                            else setDialNumber(c.number)
+                                                        }}
+                                                        title={c.contact_id ? "Open contact" : "Click to dial number"}
                                                     >
                                                         <span className="truncate">
                                                             {isMissed ? "✖ " : arrow[c.direction] + " "}
@@ -2470,6 +2957,12 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                 <p className="text-center text-[11px] text-muted-foreground/80 py-2">
                     Not for emergency calls: dial 999 from your mobile.
                 </p>
+                    </div>
+
+                    <div className="min-w-0 xl:sticky xl:top-4">
+                        {renderContactsPanel()}
+                    </div>
+                </div>
             </div>
 
             <audio id="remoteAudio" autoPlay playsInline className="fixed -top-full -left-full opacity-0 pointer-events-none w-0 h-0" />
