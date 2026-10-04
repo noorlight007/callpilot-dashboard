@@ -434,7 +434,7 @@ export function OrganizationUsersContent() {
     }
 
     return (
-        <div className="flex-1 overflow-y-auto bg-gray-50/50 dark:bg-gray-950">
+        <div className="flex-1 overflow-y-auto bg-transparent">
             <LoaderOverlay isLoading={isLoading} />
 
             {toast && (

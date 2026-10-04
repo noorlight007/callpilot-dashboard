@@ -240,7 +240,7 @@ export function CreateSupportTicketContent() {
     };
 
     return (
-        <div className="flex-1 overflow-y-auto bg-[#F9FAFB] dark:bg-gray-950">
+        <div className="flex-1 overflow-y-auto bg-transparent">
             <div className="max-w-[800px] mx-auto py-10 px-4 sm:px-6">
                 {/* Back Link */}
                 <button

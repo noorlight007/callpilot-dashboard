@@ -250,7 +250,7 @@ export function ProfileContent() {
     }
 
     return (
-        <main className="flex-1 overflow-y-auto bg-white dark:bg-gray-950 p-4 md:p-8">
+        <main className="flex-1 overflow-y-auto bg-transparent p-4 md:p-8">
             <LoaderOverlay isLoading={isLoading || isSaving} />
 
             {/* Alert Dialog */}

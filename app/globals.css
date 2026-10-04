@@ -130,8 +130,11 @@ table, [class*="text-2xl"], [class*="text-3xl"] { font-variant-numeric: tabular-
   }
   .card-lift:hover { box-shadow: var(--shadow-elevated); border-color: hsl(var(--primary) / 0.35); }
   .gradient-text {
-    @apply bg-clip-text text-transparent bg-gradient-to-r from-[#34745F] to-[#6FAF99];
+    color: #050536 !important;
+    background-image: none !important;
+    -webkit-text-fill-color: #050536;
   }
+  .dark .gradient-text { color: hsl(var(--foreground)) !important; -webkit-text-fill-color: hsl(var(--foreground)); }
   .gradient-bg { background-image: linear-gradient(135deg, #469077, #34745F); }
   .skeleton-shimmer {
     background: linear-gradient(90deg, transparent 0%, hsl(var(--primary) / 0.10) 50%, transparent 100%);
@@ -183,6 +186,8 @@ button:not(:disabled):active, [role="button"]:active { transform: scale(0.97); }
 .dark .rounded-2xl[class*="backdrop-blur"] { background-color: hsl(var(--card) / .85); }
 
 /* Topbar: quiet hairline, no animated rainbow */
+.dark header.sticky { background-color: hsl(var(--background)) !important; }
+.dark aside { background-color: hsl(var(--background)) !important; }
 header.sticky { position: sticky; backdrop-filter: blur(14px); background-color: hsl(var(--background) / .8); border-bottom: 1px solid hsl(var(--border)); }
 
 /* Sidebar */
@@ -218,6 +223,15 @@ button[class*="from-blue"], a[class*="from-blue"], button[class*="bg-gradient"],
 button[class*="from-blue"]:hover, button[class*="bg-blue-600"]:hover, button[class*="bg-primary"]:hover {
   box-shadow: 0 8px 20px -6px hsl(var(--primary) / .55);
 }
+/* Primary buttons: solid navy #0E0E6B */
+button[class*="from-blue"], a[class*="from-blue"], button[class*="bg-gradient"], button[class*="bg-blue-600"], button[class*="bg-primary"], a[class*="bg-blue-600"] {
+  background-image: none !important; background-color: #0E0E6B !important; color: #fff;
+  box-shadow: 0 4px 12px -4px rgba(14, 14, 107, .5);
+}
+button[class*="from-blue"]:hover, a[class*="from-blue"]:hover, button[class*="bg-gradient"]:hover, button[class*="bg-blue-600"]:hover, button[class*="bg-primary"]:hover {
+  background-color: #17178a !important; box-shadow: 0 8px 20px -6px rgba(14, 14, 107, .55);
+}
+.dark button[class*="from-blue"], .dark a[class*="from-blue"], .dark button[class*="bg-blue-600"], .dark button[class*="bg-primary"] { box-shadow: 0 0 0 1px rgba(255,255,255,.12); }
 button:hover > svg { transform: scale(1.06); transition: transform .18s; }
 
 /* ---------- Overlays ---------- */
