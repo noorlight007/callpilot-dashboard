@@ -21,7 +21,12 @@ import {
     Loader2,
     Voicemail,
     Radio,
-    Volume2
+    Volume2,
+    Building2,
+    Mail,
+    MapPin,
+    UserRound,
+    Users
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -66,8 +71,93 @@ interface VoiceConfig {
     transferUrl: string;
     voicemailsUrl: string;
     callsUrl: string;
+    callerLookupUrl: string;
     extensionUid?: string;
     callerId?: string;
+}
+
+interface JobAdderStatus {
+    statusId?: number | string;
+    name?: string;
+    active?: boolean;
+}
+
+interface JobAdderAddress {
+    street?: string[] | string;
+    city?: string;
+    state?: string;
+    postalCode?: string;
+    postcode?: string;
+    country?: string;
+}
+
+interface JobAdderUser {
+    userId?: number | string;
+    firstName?: string;
+    lastName?: string;
+    name?: string;
+    position?: string;
+    jobTitle?: string;
+    email?: string;
+    phone?: string;
+    mobile?: string;
+}
+
+interface JobAdderCompany {
+    companyId?: number | string;
+    name?: string;
+    status?: JobAdderStatus;
+}
+
+interface JobAdderPersonBase {
+    firstName?: string;
+    lastName?: string;
+    name?: string;
+    email?: string;
+    phone?: string;
+    mobile?: string;
+    mobileNormalized?: string;
+    unsubscribed?: boolean;
+    status?: JobAdderStatus;
+    createdBy?: JobAdderUser;
+    updatedBy?: JobAdderUser;
+    createdAt?: string;
+    updatedAt?: string;
+}
+
+interface JobAdderCandidate extends JobAdderPersonBase {
+    candidateId?: number | string;
+    seeking?: string;
+    address?: JobAdderAddress;
+}
+
+interface JobAdderContact extends JobAdderPersonBase {
+    contactId?: number | string;
+    company?: JobAdderCompany | null;
+}
+
+interface JobAdderCallerLookupResponse {
+    jobadder_connected?: boolean;
+    found?: boolean;
+    candidates?: JobAdderCandidate[];
+    contacts?: JobAdderContact[];
+    detail?: string;
+    error?: string;
+}
+
+interface CallerLookupState {
+    phone: string;
+    loading: boolean;
+    error: string | null;
+    data: JobAdderCallerLookupResponse | null;
+}
+
+interface CallerLookupOption {
+    key: string;
+    type: "candidate" | "contact";
+    index: number;
+    label: string;
+    record: JobAdderCandidate | JobAdderContact;
 }
 
 interface VoipDashboardContentProps {
@@ -86,6 +176,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         transferUrl: `${VOICE_BASE}/voice/api/transfer/`,
         voicemailsUrl: `${VOICE_BASE}/voice/api/voicemails/`,
         callsUrl: `${VOICE_BASE}/voice/api/calls/`,
+        callerLookupUrl: `${VOICE_BASE}/voice/api/jobadder-caller-lookup/`,
         extensionUid: "",
         callerId: ""
     })
@@ -114,6 +205,8 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
     const [isAnswering, setIsAnswering] = useState(false)
     const [held, setHeld] = useState(false)
     const [muted, setMuted] = useState(false)
+    const [callerLookup, setCallerLookup] = useState<CallerLookupState | null>(null)
+    const [selectedLookupKey, setSelectedLookupKey] = useState("")
 
     // Transfer States
     const [showTransferPanel, setShowTransferPanel] = useState(false)
@@ -150,6 +243,9 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
     const clientReadyRef = useRef<boolean>(false)
     const dialedNumberRef = useRef<string>("")
     const isDialingRef = useRef<boolean>(false)
+    const callerLookupPhoneRef = useRef<string>("")
+    const callerLookupRequestRef = useRef<number>(0)
+    const callerLookupAbortRef = useRef<AbortController | null>(null)
     const baseTitleRef = useRef<string>(typeof document !== "undefined" ? document.title : "")
 
     // Keep refs synchronized
@@ -178,6 +274,22 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
             lower === "active call" ||
             lower === "incoming call"
         )
+    }
+
+    const normalizeLookupPhone = (value: any): string => {
+        if (!value || typeof value !== "string" || isPlaceholder(value)) return ""
+        const trimmed = value.trim()
+        const digits = trimmed.replace(/\D/g, "")
+        if (digits.length < 5) return ""
+
+        const compact = trimmed.replace(/[^\d+]/g, "")
+        if (!compact) return ""
+
+        if (compact.startsWith("+")) {
+            return `+${compact.slice(1).replace(/\+/g, "")}`
+        }
+
+        return compact.replace(/\+/g, "")
     }
 
     // Helper: callerOf(call)
@@ -373,6 +485,147 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         return data
     }
 
+    const personName = (person?: {
+        firstName?: string;
+        lastName?: string;
+        name?: string;
+        email?: string;
+        phone?: string;
+        mobile?: string;
+    }) => {
+        if (!person) return "Unknown"
+        const name = [person.firstName, person.lastName].filter(Boolean).join(" ").trim()
+        return name || person.name || person.email || person.mobile || person.phone || "Unknown"
+    }
+
+    const compactParts = (parts: Array<string | number | null | undefined | false>) =>
+        parts
+            .map(part => (part === undefined || part === null || part === false ? "" : String(part).trim()))
+            .filter(Boolean)
+            .join(" · ")
+
+    const formatAddress = (address?: JobAdderAddress) => {
+        if (!address) return ""
+        const street = Array.isArray(address.street) ? address.street.join(", ") : address.street
+        return compactParts([
+            street,
+            address.city,
+            address.state,
+            address.postalCode || address.postcode,
+            address.country
+        ])
+    }
+
+    const formatJobAdderUser = (user?: JobAdderUser) => {
+        if (!user) return ""
+        const name = personName(user)
+        return compactParts([name === "Unknown" ? "" : name, user.jobTitle || user.position, user.email])
+    }
+
+    const formatLookupDate = (value?: string) => {
+        if (!value) return ""
+        const date = new Date(value)
+        if (Number.isNaN(date.getTime())) return ""
+        return date.toLocaleString()
+    }
+
+    const recordPhone = (record: JobAdderCandidate | JobAdderContact) =>
+        record.mobileNormalized || record.mobile || record.phone || ""
+
+    const getLookupOptions = (data?: JobAdderCallerLookupResponse | null): CallerLookupOption[] => {
+        const candidates = Array.isArray(data?.candidates) ? data.candidates : []
+        const contacts = Array.isArray(data?.contacts) ? data.contacts : []
+
+        return [
+            ...candidates.map((candidate, index) => ({
+                key: `candidate:${candidate.candidateId || index}:${index}`,
+                type: "candidate" as const,
+                index,
+                label: compactParts([
+                    personName(candidate),
+                    candidate.status?.name,
+                    recordPhone(candidate)
+                ]),
+                record: candidate
+            })),
+            ...contacts.map((contact, index) => ({
+                key: `contact:${contact.contactId || index}:${index}`,
+                type: "contact" as const,
+                index,
+                label: compactParts([
+                    personName(contact),
+                    contact.company?.name,
+                    contact.status?.name,
+                    recordPhone(contact)
+                ]),
+                record: contact
+            }))
+        ]
+    }
+
+    const resetCallerLookup = () => {
+        callerLookupRequestRef.current += 1
+        callerLookupPhoneRef.current = ""
+        if (callerLookupAbortRef.current) {
+            callerLookupAbortRef.current.abort()
+            callerLookupAbortRef.current = null
+        }
+        setCallerLookup(null)
+        setSelectedLookupKey("")
+    }
+
+    const startCallerLookup = (rawPhone: any) => {
+        const phone = normalizeLookupPhone(rawPhone)
+        if (!phone || callerLookupPhoneRef.current === phone) return
+
+        callerLookupPhoneRef.current = phone
+        callerLookupRequestRef.current += 1
+        const requestId = callerLookupRequestRef.current
+
+        if (callerLookupAbortRef.current) {
+            callerLookupAbortRef.current.abort()
+        }
+
+        const controller = new AbortController()
+        callerLookupAbortRef.current = controller
+        setCallerLookup({ phone, loading: true, error: null, data: null })
+        setSelectedLookupKey("")
+
+        const separator = cfgRef.current.callerLookupUrl.includes("?") ? "&" : "?"
+        const lookupUrl = `${cfgRef.current.callerLookupUrl}${separator}phone=${encodeURIComponent(phone)}`
+
+        api(lookupUrl, { signal: controller.signal })
+            .then((data: JobAdderCallerLookupResponse) => {
+                if (controller.signal.aborted || callerLookupRequestRef.current !== requestId) return
+
+                const normalizedData: JobAdderCallerLookupResponse = {
+                    ...data,
+                    candidates: Array.isArray(data?.candidates) ? data.candidates : [],
+                    contacts: Array.isArray(data?.contacts) ? data.contacts : []
+                }
+                const firstOption = getLookupOptions(normalizedData)[0]
+
+                setCallerLookup({
+                    phone,
+                    loading: false,
+                    error: null,
+                    data: normalizedData
+                })
+                setSelectedLookupKey(firstOption?.key || "")
+            })
+            .catch((e: any) => {
+                if (controller.signal.aborted || callerLookupRequestRef.current !== requestId) return
+
+                setCallerLookup({
+                    phone,
+                    loading: false,
+                    error: e?.message || "Could not load JobAdder caller details",
+                    data: null
+                })
+                setSelectedLookupKey("")
+            })
+    }
+
     // Reliable Web Audio ringtone. A looping AudioBuffer is used instead of
     // setInterval/oscillator bursts because browsers can throttle timers and Telnyx
     // may emit repeated "ringing" notifications for the same call.
@@ -406,6 +659,39 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         // If this is the same object/call we created with newCall(), it is outbound
         // even if an older SDK build temporarily omits the direction field.
         return !!(activeCallRef.current && sameCall(activeCallRef.current, call) && dialedNumberRef.current)
+    }
+
+    const phoneOfCall = (call: any): string => {
+        if (!call) return normalizeLookupPhone(dialedNumberRef.current)
+        if (typeof call === "string") return normalizeLookupPhone(call)
+
+        const o = call.options || {}
+        const candidates = isDefinitelyOutbound(call)
+            ? [
+                o.destinationNumber,
+                call.destinationNumber,
+                dialedNumberRef.current,
+                o.remoteCallerNumber,
+                call.number,
+                call.callerNumber,
+                o.remoteCallerName
+            ]
+            : [
+                o.remoteCallerNumber,
+                call.callerNumber,
+                call.number,
+                o.callerNumber,
+                o.from,
+                o.remoteCallerName,
+                dialedNumberRef.current
+            ]
+
+        for (const candidate of candidates) {
+            const phone = normalizeLookupPhone(candidate)
+            if (phone) return phone
+        }
+
+        return normalizeLookupPhone(callerOf(call))
     }
 
     // Answer the freshest live Telnyx Call object.
@@ -699,6 +985,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         incomingCallRef.current = call
         setIncomingCall(call)
         setIncomingCaller(callerOf(call))
+        startCallerLookup(phoneOfCall(call))
 
         // After Answer/Decline is clicked Telnyx can emit one final ringing update.
         // Do not let that stale update restart the ringtone.
@@ -732,6 +1019,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         activeCallRef.current = call
         setActiveCall(call)
         setActiveWho(callerOf(call))
+        startCallerLookup(phoneOfCall(call))
 
         if (stateText === "Connected" && (first || !callStartRef.current)) {
             callStartRef.current = Date.now()
@@ -761,6 +1049,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
             setIncomingCall(null)
             incomingCallRef.current = null
             stopRinger(call || endingIncoming)
+            resetCallerLookup()
             if (typeof document !== "undefined") {
                 document.title = baseTitleRef.current || document.title
             }
@@ -778,6 +1067,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
             setMuted(false)
             callStartRef.current = 0
             dialedNumberRef.current = ""
+            resetCallerLookup()
             if (typeof document !== "undefined") {
                 document.title = baseTitleRef.current || document.title
             }
@@ -1217,6 +1507,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
 
         setIncomingCall(null)
         incomingCallRef.current = null
+        resetCallerLookup()
         if (typeof document !== "undefined") {
             document.title = baseTitleRef.current || document.title
         }
@@ -1453,6 +1744,11 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
             clearInterval(listInterval)
             clearInterval(tokenInterval)
             stopRinger()
+            callerLookupRequestRef.current += 1
+            if (callerLookupAbortRef.current) {
+                callerLookupAbortRef.current.abort()
+                callerLookupAbortRef.current = null
+            }
             if (rtcSyncTimerRef.current) {
                 clearInterval(rtcSyncTimerRef.current)
                 rtcSyncTimerRef.current = null
@@ -1494,6 +1790,159 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         : callsList
 
     const arrow = { inbound: "↙", outbound: "↗" }
+
+    const renderLookupDetail = (label: string, value?: React.ReactNode, icon?: React.ReactNode) => {
+        if (!value) return null
+        return (
+            <div className="min-w-0 rounded-lg border border-border/60 bg-background/60 p-2.5">
+                <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    {icon}
+                    <span>{label}</span>
+                </div>
+                <div className="mt-1 text-xs font-medium text-foreground break-words">{value}</div>
+            </div>
+        )
+    }
+
+    const renderCallerLookupPanel = () => {
+        if (!callerLookup) return null
+
+        const data = callerLookup.data
+        const candidates = Array.isArray(data?.candidates) ? data.candidates : []
+        const contacts = Array.isArray(data?.contacts) ? data.contacts : []
+        const options = getLookupOptions(data)
+        const selectedOption = options.find(option => option.key === selectedLookupKey) || options[0]
+        const selectedRecord = selectedOption?.record
+        const selectedCandidate = selectedOption?.type === "candidate" ? (selectedRecord as JobAdderCandidate) : null
+        const selectedContact = selectedOption?.type === "contact" ? (selectedRecord as JobAdderContact) : null
+        const address = selectedCandidate ? formatAddress(selectedCandidate.address) : ""
+        const company = selectedContact?.company
+        const owner = selectedRecord ? formatJobAdderUser(selectedRecord.updatedBy || selectedRecord.createdBy) : ""
+        const updated = selectedRecord ? formatLookupDate(selectedRecord.updatedAt || selectedRecord.createdAt) : ""
+        const notConnected = data && data.jobadder_connected === false
+
+        return (
+            <div className="rounded-xl border border-border/70 bg-muted/35 p-3 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0 flex items-center gap-2">
+                        <Users className="w-4 h-4 text-primary shrink-0" />
+                        <div className="min-w-0">
+                            <div className="text-xs font-semibold uppercase tracking-wider text-foreground">
+                                JobAdder matches
+                            </div>
+                            <div className="text-[11px] text-muted-foreground truncate">
+                                {callerLookup.phone}
+                            </div>
+                        </div>
+                    </div>
+                    {callerLookup.loading ? (
+                        <Badge variant="outline" className="gap-1.5 text-[10px] font-semibold shrink-0">
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            Loading
+                        </Badge>
+                    ) : data && !callerLookup.error && !notConnected ? (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                            <Badge variant="outline" className="bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30 text-[10px] font-semibold">
+                                {candidates.length} candidates
+                            </Badge>
+                            <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] font-semibold">
+                                {contacts.length} contacts
+                            </Badge>
+                        </div>
+                    ) : null}
+                </div>
+
+                {callerLookup.error ? (
+                    <div className="text-xs font-medium text-rose-600 dark:text-rose-400">
+                        {callerLookup.error}
+                    </div>
+                ) : callerLookup.loading && !data ? (
+                    <div className="text-xs text-muted-foreground">
+                        Searching JobAdder records…
+                    </div>
+                ) : notConnected ? (
+                    <div className="text-xs text-muted-foreground">
+                        {data?.detail || data?.error || "JobAdder is not connected for this account."}
+                    </div>
+                ) : options.length === 0 ? (
+                    <div className="text-xs text-muted-foreground">
+                        No JobAdder candidate or contact found for this number.
+                    </div>
+                ) : selectedRecord ? (
+                    <>
+                        <select
+                            className="w-full h-9 rounded-lg border border-input bg-background px-3 text-xs font-medium text-foreground shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                            value={selectedOption?.key || ""}
+                            onChange={e => setSelectedLookupKey(e.target.value)}
+                        >
+                            {candidates.length > 0 && (
+                                <optgroup label={`Candidates (${candidates.length})`}>
+                                    {candidates.map((candidate, index) => {
+                                        const key = `candidate:${candidate.candidateId || index}:${index}`
+                                        const option = options.find(item => item.key === key)
+                                        return (
+                                            <option key={key} value={key}>
+                                                {option?.label || personName(candidate)}
+                                            </option>
+                                        )
+                                    })}
+                                </optgroup>
+                            )}
+                            {contacts.length > 0 && (
+                                <optgroup label={`Contacts (${contacts.length})`}>
+                                    {contacts.map((contact, index) => {
+                                        const key = `contact:${contact.contactId || index}:${index}`
+                                        const option = options.find(item => item.key === key)
+                                        return (
+                                            <option key={key} value={key}>
+                                                {option?.label || personName(contact)}
+                                            </option>
+                                        )
+                                    })}
+                                </optgroup>
+                            )}
+                        </select>
+
+                        <div className="rounded-lg border border-border/70 bg-background/80 p-3 space-y-3">
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                    <div className="text-sm font-bold text-foreground truncate">
+                                        {personName(selectedRecord)}
+                                    </div>
+                                    <div className="text-[11px] text-muted-foreground mt-0.5">
+                                        {selectedCandidate
+                                            ? `Candidate ID ${selectedCandidate.candidateId || "unknown"}`
+                                            : `Contact ID ${selectedContact?.contactId || "unknown"}`}
+                                    </div>
+                                </div>
+                                <Badge
+                                    variant="secondary"
+                                    className={`text-[10px] font-semibold shrink-0 ${
+                                        selectedCandidate
+                                            ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                                            : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                                    }`}
+                                >
+                                    {selectedCandidate ? "Candidate" : "Contact"}
+                                </Badge>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {renderLookupDetail("Phone", recordPhone(selectedRecord), <Phone className="w-3 h-3" />)}
+                                {renderLookupDetail("Email", selectedRecord.email, <Mail className="w-3 h-3" />)}
+                                {renderLookupDetail("Status", selectedRecord.status?.name)}
+                                {selectedCandidate && renderLookupDetail("Seeking", selectedCandidate.seeking)}
+                                {selectedContact && renderLookupDetail("Company", compactParts([company?.name, company?.status?.name]), <Building2 className="w-3 h-3" />)}
+                                {renderLookupDetail("Address", address, <MapPin className="w-3 h-3" />)}
+                                {renderLookupDetail("Owner", owner, <UserRound className="w-3 h-3" />)}
+                                {renderLookupDetail("Updated", updated, <Clock className="w-3 h-3" />)}
+                            </div>
+                        </div>
+                    </>
+                ) : null}
+            </div>
+        )
+    }
 
     return (
         <div className="flex-1 overflow-y-auto bg-background p-4 md:p-8 min-h-screen text-foreground font-sans">
@@ -1570,6 +2019,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                             <div id="incoming-from" className="text-xl font-bold text-foreground truncate">
                                 Incoming call: {incomingCaller || "Unknown"}
                             </div>
+                            {renderCallerLookupPanel()}
                             <div className="flex gap-2.5 pt-1">
                                 <Button
                                     id="btn-answer"
@@ -1616,6 +2066,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                                     {activeStateText}
                                 </Badge>
                             </div>
+                            {renderCallerLookupPanel()}
 
                             {/* Action Buttons Grid */}
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2">
