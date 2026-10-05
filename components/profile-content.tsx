@@ -371,7 +371,7 @@ export function ProfileContent() {
                             <Button
                                 type="submit"
                                 disabled={isSaving}
-                                className="bg-[#1a1c1e] dark:bg-gray-100 hover:bg-[#2a2c2e] dark:hover:bg-gray-200 text-white dark:text-gray-900 font-semibold px-8 rounded-lg transition-all duration-200"
+                                className="bg-[#1a1c1e] dark:bg-primary hover:bg-[#2a2c2e] dark:hover:bg-primary/90 text-white dark:text-white font-semibold px-8 rounded-lg transition-all duration-200"
                             >
                                 Change Password
                             </Button>
@@ -475,7 +475,7 @@ export function ProfileContent() {
                                 <Button
                                     onClick={handleSave}
                                     disabled={isSaving}
-                                    className="bg-[#1a1c1e] dark:bg-gray-100 hover:bg-[#2a2c2e] dark:hover:bg-gray-200 text-white dark:text-gray-900 font-semibold px-8 py-2.5 rounded-lg transition-all duration-200"
+                                    className="bg-[#1a1c1e] dark:bg-primary hover:bg-[#2a2c2e] dark:hover:bg-primary/90 text-white dark:text-white font-semibold px-8 py-2.5 rounded-lg transition-all duration-200"
                                 >
                                     Save Changes
                                 </Button>
@@ -485,7 +485,7 @@ export function ProfileContent() {
                         <div className="pt-2">
                             <Button
                                 onClick={() => setIsPasswordModalOpen(true)}
-                                className="bg-[#1a1c1e] dark:bg-gray-100 hover:bg-[#2a2c2e] dark:hover:bg-gray-200 text-white dark:text-gray-900 font-semibold px-8 py-2.5 rounded-lg transition-all duration-200"
+                                className="bg-[#1a1c1e] dark:bg-primary hover:bg-[#2a2c2e] dark:hover:bg-primary/90 text-white dark:text-white font-semibold px-8 py-2.5 rounded-lg transition-all duration-200"
                             >
                                 Change Password
                             </Button>
