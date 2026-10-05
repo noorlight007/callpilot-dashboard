@@ -76,7 +76,7 @@ export default function AICallFlowOptionsPage() {
     }
 
     return (
-        <div className="flex h-screen bg-white overflow-hidden">
+        <div className="flex h-screen bg-background overflow-hidden">
             <Sidebar
                 isOpen={isTabletOrLarger || isSidebarOpen}
                 onClose={() => setIsSidebarOpen(false)}

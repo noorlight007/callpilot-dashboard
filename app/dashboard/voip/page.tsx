@@ -83,7 +83,7 @@ export default function VoipRootPage() {
     }
 
     return (
-        <div className="flex h-screen bg-white dark:bg-gray-950 overflow-hidden">
+        <div className="flex h-screen bg-background dark:bg-gray-950 overflow-hidden">
             {/* Sidebar */}
             <Sidebar
                 isOpen={isTabletOrLarger || isSidebarOpen}

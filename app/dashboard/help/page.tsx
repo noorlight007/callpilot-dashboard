@@ -86,7 +86,7 @@ export default function HelpPage() {
     }
 
     return (
-        <div className="flex h-screen bg-white dark:bg-gray-950 overflow-hidden">
+        <div className="flex h-screen bg-background dark:bg-gray-950 overflow-hidden">
             <Sidebar
                 isOpen={isTabletOrLarger || isSidebarOpen}
                 onClose={() => setIsSidebarOpen(false)}

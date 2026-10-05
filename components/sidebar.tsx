@@ -178,7 +178,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                   style={{ animationDelay: `${index * 20}ms` }}
                   className={`relative flex items-center gap-3 px-3 py-2.5 text-[15px] rounded-xl transition-all duration-200 group animate-fade-up ${isActive
                     ? 'bg-accent text-accent-foreground'
-                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
                     }`}
                 >
                   {isActive && (
@@ -188,7 +188,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                     <span
                       className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors duration-200 ${isActive
                         ? 'bg-primary text-primary-foreground shadow-sm'
-                        : 'bg-muted text-muted-foreground group-hover:bg-accent group-hover:text-primary'
+                        : 'bg-muted text-muted-foreground group-hover:bg-primary/15 group-hover:text-primary'
                         }`}
                     >
                       <item.icon size={18} strokeWidth={2} />

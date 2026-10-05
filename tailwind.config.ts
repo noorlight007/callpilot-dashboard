@@ -14,22 +14,26 @@ const config: Config = {
         sans: ['var(--font-jakarta)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
       },
       colors: {
-        // Brand green ramp (#469077). The default blue/violet/indigo scales are remapped
+        // Brand blue ramp (#1668F5). The default blue/violet/indigo scales are remapped
         // onto it so every existing utility picks up the brand colour.
         blue: {
-          50: '#E8F3EF', 100: '#D3E8E0', 200: '#AFD3C6', 300: '#8CBFAD', 400: '#6FAF99',
-          500: '#469077', 600: '#3B7F69', 700: '#34745F', 800: '#2A5D4D', 900: '#214A3E', 950: '#122A23',
+          50: '#EEF4FF', 100: '#DCE8FE', 200: '#BDD3FD', 300: '#8FB5FB', 400: '#5C90F8',
+          500: '#1668F5', 600: '#1156D6', 700: '#0F4FC4', 800: '#143F94', 900: '#16336F', 950: '#0D1F45',
         },
         violet: {
-          50: '#E8F3EF', 100: '#D3E8E0', 200: '#AFD3C6', 300: '#8CBFAD', 400: '#6FAF99',
-          500: '#469077', 600: '#3B7F69', 700: '#34745F', 800: '#2A5D4D', 900: '#214A3E', 950: '#122A23',
+          50: '#EEF4FF', 100: '#DCE8FE', 200: '#BDD3FD', 300: '#8FB5FB', 400: '#5C90F8',
+          500: '#1668F5', 600: '#1156D6', 700: '#0F4FC4', 800: '#143F94', 900: '#16336F', 950: '#0D1F45',
         },
         indigo: {
-          50: '#E8F3EF', 100: '#D3E8E0', 200: '#AFD3C6', 300: '#8CBFAD', 400: '#6FAF99',
-          500: '#469077', 600: '#3B7F69', 700: '#34745F', 800: '#2A5D4D', 900: '#214A3E', 950: '#122A23',
+          50: '#EEF4FF', 100: '#DCE8FE', 200: '#BDD3FD', 300: '#8FB5FB', 400: '#5C90F8',
+          500: '#1668F5', 600: '#1156D6', 700: '#0F4FC4', 800: '#143F94', 900: '#16336F', 950: '#0D1F45',
+        },
+        // Dark-mode neutrals tinted to the blue theme so hardcoded dark:bg-gray-* containers match.
+        gray: {
+          700: '#27324A', 800: '#182036', 850: '#141B2E', 900: '#101627', 950: '#0A0F1C',
         },
         brand: {
-          cyan: '#6FAF99', pink: '#6FAF99', violet: '#469077', indigo: '#34745F',
+          cyan: '#6FA3F8', pink: '#6FA3F8', violet: '#1668F5', indigo: '#0F4FC4',
         },
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
