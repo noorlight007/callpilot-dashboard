@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { BASE_URL } from "@/lib/baseUrl"
+import { fetchTelnyxToken, loadTelnyxSdk } from "@/lib/voip-connection"
 import { cookieUtils } from "@/services/auth-service"
 import { profileService } from "@/services/profile-service"
 import {
@@ -246,7 +247,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
     const [mainNumber, setMainNumber] = useState<string>("0131 367 1667")
 
     // UI and Connection State
-    const [status, setStatus] = useState<"online" | "offline" | "connecting">("offline")
+    const [status, setStatus] = useState<"online" | "offline" | "connecting">("connecting")
     const [statusDetail, setStatusDetail] = useState<string>("")
     const [soundBannerVisible, setSoundBannerVisible] = useState(false)
     const [callError, setCallError] = useState<string | null>(null)
@@ -329,6 +330,8 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
     const currentTabRef = useRef<"recent" | "missed" | "voicemail">("recent")
     const isConnectingRef = useRef<boolean>(false)
     const clientReadyRef = useRef<boolean>(false)
+    const connectionLifecycleRef = useRef<AbortController | null>(null)
+    const clientDisconnectRef = useRef<Promise<void>>(Promise.resolve())
     const dialedNumberRef = useRef<string>("")
     const isDialingRef = useRef<boolean>(false)
     const callerLookupPhoneRef = useRef<string>("")
@@ -1464,230 +1467,201 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         }
     }
 
-    // SDK script loader
-    const loadSdk = () => {
-        return new Promise<void>((resolve, reject) => {
-            if (typeof window === "undefined") {
-                return reject(new Error("Telnyx SDK can only load in the browser"))
-            }
-
-            // IMPORTANT: load a version that contains Telnyx VSUP-122 first.
-            // The previous code preferred /js/telnyx-webrtc.js. If that local file is
-            // 2.27.0-2.27.3, transferred calls ring but answer() is silently ignored.
-            const scriptUrls = [
-                "https://unpkg.com/@telnyx/webrtc@2.27.10/lib/bundle.js",
-                "/js/telnyx-webrtc.js"
-            ]
-            let index = 0
-
-            const tryLoadScript = () => {
-                if (index >= scriptUrls.length) {
-                    return reject(new Error("Could not load the Telnyx WebRTC SDK (" + cfgRef.current.sdkUrl + ")"))
-                }
-                const url = scriptUrls[index++]
-                const s = document.createElement("script")
-                s.src = url
-                s.onload = () => resolve()
-                s.onerror = () => {
-                    console.warn(`Failed loading SDK from ${url}, trying fallback...`)
-                    tryLoadScript()
-                }
-                document.head.appendChild(s)
-            }
-
-            tryLoadScript()
-        })
-    }
-
-    const scheduleReconnect = () => {
+    const scheduleReconnect = (delay = 5000) => {
         clearTimeout(reconnectTimerRef.current)
-        reconnectTimerRef.current = setTimeout(connect, 5000)
+        if (!connectionLifecycleRef.current || connectionLifecycleRef.current.signal.aborted) return
+        reconnectTimerRef.current = setTimeout(() => void connect(), delay)
     }
 
     // Connect WebRTC SDK
     const connect = async () => {
+        const lifecycle = connectionLifecycleRef.current
+        if (!lifecycle || lifecycle.signal.aborted) return
         if (activeCallRef.current || incomingCallRef.current) {
-            reconnectTimerRef.current = setTimeout(connect, 15000)
+            scheduleReconnect(15000)
             return
         }
         if (isConnectingRef.current) return
         isConnectingRef.current = true
+        clearTimeout(reconnectTimerRef.current)
+        clearTimeout(readyWatchdogRef.current)
 
         setStatus((prev) => (prev === "online" ? "online" : "connecting"))
-        setStatusDetail("")
+        setStatusDetail("Connecting phone…")
         try {
-            await loadSdk()
-            const RTC =
-                (window as any).TelnyxWebRTC?.TelnyxRTC ||
-                (window as any).TelnyxRTC?.TelnyxRTC ||
-                (window as any).TelnyxRTC ||
-                (window as any).TelnyxWebRTC
-
-            if (!RTC) throw new Error("Telnyx SDK global not found")
-
-            // Fetch live login_token
-            let token: string | null = null
-            try {
-                const res = await api(cfgRef.current.tokenUrl, { method: "POST" })
-                token = res?.token || res?.login_token || res?.data?.token || res?.jwt || null
-            } catch (err: any) {
-                try {
-                    const fallbackRes = await fetch("/api/voice/token", { method: "POST" })
-                    if (fallbackRes.ok) {
-                        const fallbackData = await fallbackRes.json()
-                        token = fallbackData?.token || fallbackData?.login_token || null
-                    }
-                } catch (e: any) {
-                    console.warn("Fallback token endpoint note:", e)
+            const RTC = await loadTelnyxSdk(cfgRef.current.sdkUrl)
+            if (lifecycle.signal.aborted) return
+            const accessToken = cookieUtils.get("access")
+            const csrfToken = getCookie("csrftoken")
+            const token = await fetchTelnyxToken(cfgRef.current.tokenUrl, {
+                credentials: "include",
+                signal: lifecycle.signal,
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+                    ...(csrfToken ? { "X-CSRFToken": csrfToken } : {})
                 }
+            })
+            if (lifecycle.signal.aborted) return
+
+            // A call may have arrived while fetching the replacement token.
+            if (activeCallRef.current || incomingCallRef.current) {
+                scheduleReconnect(15000)
+                return
             }
 
-            if (RTC && token) {
-                if (clientRef.current) {
-                    try {
-                        const oldClient = clientRef.current
-                        clientRef.current = null
-                        if (typeof oldClient.off === "function") {
-                            oldClient.off("telnyx.ready")
-                            oldClient.off("telnyx.socket.open")
-                            oldClient.off("telnyx.socket.close")
-                            oldClient.off("telnyx.socket.error")
-                            oldClient.off("telnyx.error")
-                            oldClient.off("telnyx.warning")
-                            oldClient.off("telnyx.notification")
-                        }
-                        oldClient.disconnect()
-                    } catch (e) { }
-                }
-
-                clientReadyRef.current = false
-
-                const client = new RTC({
-                    login_token: token,
-                    enableCallReports: true,
-                    disableCallReport: false,
-                    enableCallRecording: false,
-                    autoReconnect: true,
-                    maxReconnectAttempts: 10
-                })
-
+            clientReadyRef.current = false
+            setStatus("connecting")
+            if (clientRef.current) {
                 try {
-                    client.remoteElement = "remoteAudio"
+                    const oldClient = clientRef.current
+                    clientRef.current = null
+                    if (typeof oldClient.off === "function") {
+                        oldClient.off("telnyx.ready")
+                        oldClient.off("telnyx.socket.open")
+                        oldClient.off("telnyx.socket.close")
+                        oldClient.off("telnyx.socket.error")
+                        oldClient.off("telnyx.error")
+                        oldClient.off("telnyx.warning")
+                        oldClient.off("telnyx.notification")
+                    }
+                    clientDisconnectRef.current = Promise.resolve(oldClient.disconnect()).catch(() => {})
                 } catch (e) { }
-
-                client.on("telnyx.ready", () => {
-                    if (clientRef.current !== client) return
-                    clientReadyRef.current = true
-                    if (readyWatchdogRef.current) {
-                        clearTimeout(readyWatchdogRef.current)
-                        readyWatchdogRef.current = null
-                    }
-                    setStatus("online")
-                    setStatusDetail("Online - ready for incoming calls")
-                    // If the invite arrived during registration/mount, recover it now.
-                    setTimeout(reconcileRtcCalls, 0)
-                })
-
-                client.on("telnyx.socket.open", () => {
-                    if (clientRef.current !== client) return
-                    // Socket open only means signaling transport is up. Wait for
-                    // telnyx.ready before advertising that the phone can receive calls.
-                    setStatus("connecting")
-                    setStatusDetail("Registering phone…")
-                })
-
-                client.on("telnyx.error", (e: any) => {
-                    if (clientRef.current !== client) return
-                    console.error("telnyx.error", e)
-                    const telnyxError = e?.error || e
-                    const code = Number(telnyxError?.code || e?.code)
-                    const message = telnyxErrorMessage(telnyxError)
-                    const eventCallId = String(e?.callId || telnyxError?.callId || "")
-                    const currentActive = activeCallRef.current
-                    const currentIncoming = incomingCallRef.current
-                    const setupFailureCodes = [40001, 40005, 42001, 42002, 42003, 44002]
-
-                    if (
-                        eventCallId ||
-                        currentActive ||
-                        setupFailureCodes.includes(code)
-                    ) {
-                        setCallError(message)
-                        setStatusDetail(message)
-                    }
-
-                    const matchesActiveCall =
-                        currentActive &&
-                        (!eventCallId || callId(currentActive) === eventCallId || recoveredCallId(currentActive) === eventCallId)
-                    const matchesIncomingCall =
-                        currentIncoming &&
-                        (!eventCallId || callId(currentIncoming) === eventCallId || recoveredCallId(currentIncoming) === eventCallId)
-
-                    if ((matchesActiveCall || matchesIncomingCall) && setupFailureCodes.includes(code)) {
-                        endCall(matchesActiveCall ? currentActive : currentIncoming)
-                    }
-
-                    const isFatal = telnyxError?.fatal === true || e?.fatal === true || code === 46001 || code === 46002 || code === 45003 || code === 48001
-                    if (isFatal && !activeCallRef.current && !incomingCallRef.current) {
-                        clientReadyRef.current = false
-                        setStatus("offline")
-                        setStatusDetail(message || "Offline")
-                        scheduleReconnect()
-                    }
-                })
-
-                client.on("telnyx.socket.close", () => {
-                    if (clientRef.current !== client) return
-                    clientReadyRef.current = false
-                    if (!activeCallRef.current && !incomingCallRef.current) {
-                        setStatus("connecting")
-                        setStatusDetail("Reconnecting…")
-                        // SDK autoReconnect gets the first chance; this is only a
-                        // fallback if registration never returns.
-                        clearTimeout(reconnectTimerRef.current)
-                        reconnectTimerRef.current = setTimeout(() => {
-                            if (!clientReadyRef.current && !activeCallRef.current && !incomingCallRef.current) connect()
-                        }, 12000)
-                    }
-                })
-
-                client.on("telnyx.warning", (warning: any) => {
-                    if (clientRef.current !== client) return
-                    console.warn("[TELNYX WARNING]", warning)
-                    if (warning?.code === 33007 || String(warning?.code) === "33007") {
-                        setStatusDetail("Telnyx blocked a duplicate inbound answer (33007)")
-                    }
-                })
-
-                client.on("telnyx.notification", onNotification)
-                clientRef.current = client
-
-                // If the WebSocket opens but REGED/telnyx.ready never arrives, do not
-                // leave a misleading green Online badge forever.
-                if (readyWatchdogRef.current) clearTimeout(readyWatchdogRef.current)
-                readyWatchdogRef.current = setTimeout(() => {
-                    if (clientRef.current === client && !clientReadyRef.current && !activeCallRef.current && !incomingCallRef.current) {
-                        console.warn("Telnyx socket connected but client never became ready; reconnecting")
-                        setStatus("offline")
-                        setStatusDetail("Phone registration timed out")
-                        try { client.disconnect() } catch { }
-                        scheduleReconnect()
-                    }
-                }, 15000)
-
-                client.connect()
-            } else {
-                clientReadyRef.current = false
-                throw new Error("Could not get a Telnyx WebRTC login token")
             }
+            await clientDisconnectRef.current
+            if (lifecycle.signal.aborted) return
+
+            const client = new RTC({
+                login_token: token,
+                enableCallReports: true,
+                disableCallReport: false,
+                enableCallRecording: false,
+                autoReconnect: true,
+                maxReconnectAttempts: 10
+            })
+
+            try {
+                client.remoteElement = "remoteAudio"
+            } catch (e) { }
+
+            const startReadyWatchdog = () => {
+                clearTimeout(readyWatchdogRef.current)
+                readyWatchdogRef.current = setTimeout(() => {
+                    if (clientRef.current !== client || clientReadyRef.current) return
+                    if (activeCallRef.current || incomingCallRef.current) return
+                    setStatus("offline")
+                    setStatusDetail("Phone registration timed out. Retrying…")
+                    scheduleReconnect()
+                }, 30000)
+            }
+
+            client.on("telnyx.ready", () => {
+                if (clientRef.current !== client) return
+                clientReadyRef.current = true
+                clearTimeout(reconnectTimerRef.current)
+                reconnectTimerRef.current = null
+                if (readyWatchdogRef.current) {
+                    clearTimeout(readyWatchdogRef.current)
+                    readyWatchdogRef.current = null
+                }
+                setStatus("online")
+                setStatusDetail("Online - ready for incoming calls")
+                // If the invite arrived during registration/mount, recover it now.
+                setTimeout(reconcileRtcCalls, 0)
+            })
+
+            client.on("telnyx.socket.open", () => {
+                if (clientRef.current !== client) return
+                // Socket open only means signaling transport is up. Wait for
+                // telnyx.ready before advertising that the phone can receive calls.
+                clientReadyRef.current = false
+                setStatus("connecting")
+                setStatusDetail("Registering phone…")
+                startReadyWatchdog()
+            })
+
+            client.on("telnyx.error", (e: any) => {
+                if (clientRef.current !== client) return
+                console.error("telnyx.error", e)
+                const telnyxError = e?.error || e
+                const code = Number(telnyxError?.code || e?.code)
+                const message = telnyxErrorMessage(telnyxError)
+                const eventCallId = String(e?.callId || telnyxError?.callId || "")
+                const currentActive = activeCallRef.current
+                const currentIncoming = incomingCallRef.current
+                const setupFailureCodes = [40001, 40005, 42001, 42002, 42003, 44002]
+
+                if (
+                    eventCallId ||
+                    currentActive ||
+                    setupFailureCodes.includes(code)
+                ) {
+                    setCallError(message)
+                    setStatusDetail(message)
+                }
+
+                const matchesActiveCall =
+                    currentActive &&
+                    (!eventCallId || callId(currentActive) === eventCallId || recoveredCallId(currentActive) === eventCallId)
+                const matchesIncomingCall =
+                    currentIncoming &&
+                    (!eventCallId || callId(currentIncoming) === eventCallId || recoveredCallId(currentIncoming) === eventCallId)
+
+                if ((matchesActiveCall || matchesIncomingCall) && setupFailureCodes.includes(code)) {
+                    endCall(matchesActiveCall ? currentActive : currentIncoming)
+                }
+
+                const isFatal = telnyxError?.fatal === true || e?.fatal === true || code === 46001 || code === 46002 || code === 45003 || code === 48001
+                if (isFatal && !activeCallRef.current && !incomingCallRef.current) {
+                    clientReadyRef.current = false
+                    setStatus("offline")
+                    setStatusDetail(message || "Offline")
+                    scheduleReconnect()
+                }
+            })
+
+            client.on("telnyx.socket.close", () => {
+                if (clientRef.current !== client) return
+                clientReadyRef.current = false
+                clearTimeout(readyWatchdogRef.current)
+                setStatus("connecting")
+                setStatusDetail("Reconnecting…")
+                // Give the SDK time to recover before replacing the client.
+                scheduleReconnect(12000)
+            })
+
+            client.on("telnyx.socket.error", () => {
+                if (clientRef.current !== client) return
+                clientReadyRef.current = false
+                setStatus("offline")
+                setStatusDetail("Could not reach the phone service. Check your connection; retrying…")
+                scheduleReconnect(12000)
+            })
+
+            client.on("telnyx.warning", (warning: any) => {
+                if (clientRef.current !== client) return
+                console.warn("[TELNYX WARNING]", warning)
+                if (warning?.code === 33007 || String(warning?.code) === "33007") {
+                    setStatusDetail("Telnyx blocked a duplicate inbound answer (33007)")
+                }
+            })
+
+            client.on("telnyx.notification", (notification: any) => {
+                if (clientRef.current === client) onNotification(notification)
+            })
+            clientRef.current = client
+
+            startReadyWatchdog()
+            await client.connect()
         } catch (e: any) {
+            if (lifecycle.signal.aborted) return
             console.error("Telnyx connection error:", e)
             clientReadyRef.current = false
             setStatus("offline")
             setStatusDetail(e?.message || "Offline")
             scheduleReconnect()
         } finally {
-            isConnectingRef.current = false
+            if (!lifecycle.signal.aborted) isConnectingRef.current = false
         }
     }
 
@@ -1941,6 +1915,9 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
 
     // Initial lifecycle, audio unlock & polling intervals
     useEffect(() => {
+        const lifecycle = new AbortController()
+        connectionLifecycleRef.current = lifecycle
+        isConnectingRef.current = false
         if (typeof document !== "undefined" && !baseTitleRef.current) {
             baseTitleRef.current = document.title
         }
@@ -2001,7 +1978,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         }
         document.addEventListener("visibilitychange", visibilityHandler)
 
-        setTimeout(() => {
+        const audioUnlockTimer = setTimeout(() => {
             try {
                 const ctx = getAudioContext()
                 if (ctx) setSoundBannerVisible(ctx.state !== "running")
@@ -2029,11 +2006,14 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         }, 8 * 3600 * 1000)
 
         return () => {
+            lifecycle.abort()
+            isConnectingRef.current = false
             window.removeEventListener("pointerdown", handleUnlock)
             window.removeEventListener("keydown", handleUnlock)
             document.removeEventListener("visibilitychange", visibilityHandler)
             clearInterval(listInterval)
             clearInterval(tokenInterval)
+            clearTimeout(audioUnlockTimer)
             stopRinger()
             callerLookupRequestRef.current += 1
             if (callerLookupAbortRef.current) {
@@ -2065,7 +2045,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                         client.off("telnyx.warning")
                         client.off("telnyx.notification")
                     }
-                    client.disconnect()
+                    clientDisconnectRef.current = Promise.resolve(client.disconnect()).catch(() => {})
                 } catch (e) { }
             }
         }
@@ -2736,6 +2716,23 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                         Logged in: <strong className="text-foreground">{userName}</strong> (ext {extension})<br />
                         Main Number: <strong className="text-foreground">{mainNumber}</strong>
                     </p>
+                    {status !== "online" && statusDetail && (
+                        <div className="flex items-center justify-between gap-3" role="status" aria-live="polite">
+                            <p className={`text-xs ${status === "offline" ? "text-rose-600 dark:text-rose-400" : "text-muted-foreground"}`}>
+                                {statusDetail}
+                            </p>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => void connect()}
+                                disabled={status === "connecting" || !!activeCall || !!incomingCall}
+                                className="shrink-0 gap-1.5"
+                            >
+                                <RefreshCw className="w-3.5 h-3.5" />
+                                Retry
+                            </Button>
+                        </div>
+                    )}
                 </div>
 
                 {/* Sound Banner */}
