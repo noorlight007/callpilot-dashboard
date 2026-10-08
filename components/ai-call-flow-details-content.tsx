@@ -88,19 +88,19 @@ export function AICallFlowDetailsContent({ flow }: AICallFlowDetailsContentProps
             <div className="p-6 md:p-8 border-b border-gray-100 dark:border-gray-800 shrink-0">
                 <div className="flex flex-col sm:flex-row gap-6 md:gap-8 items-center sm:items-start text-center sm:text-left max-w-7xl mx-auto w-full">
                     {/* Image left from Name */}
-                    <div className="w-24 h-32 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex-shrink-0 bg-gray-50 dark:bg-gray-900">
+                    <div className="w-24 h-32 border border-indigo-100 dark:border-white/10 rounded-xl shadow-md shadow-indigo-500/10 overflow-hidden flex-shrink-0 bg-gray-50 dark:bg-gray-900">
                         <img src={flow.picture} alt={flow.name} className="w-full h-full object-cover" />
                     </div>
                     <div className="space-y-2 flex-grow">
-                        <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 leading-tight">
+                        <h2 className="text-xl font-bold gradient-text leading-tight">
                             {flow.name}
                         </h2>
                         <div className="flex flex-col gap-4">
                             <div className="flex items-center gap-2 text-sm text-gray-500 font-medium capitalize">
-                                <span className="bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded text-gray-600 dark:text-gray-300">{flow.call_direction} Call</span>
+                                <span className="bg-indigo-50 dark:bg-indigo-500/15 px-2 py-0.5 rounded-full text-indigo-700 dark:text-indigo-200 font-medium">{flow.call_direction} Call</span>
                             </div>
                             <div className="flex items-center gap-2 text-sm text-gray-500 font-medium uppercase tracking-wider">
-                                <span className="bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded text-gray-600 dark:text-gray-300">{flow.flow_category.replace(/_/g, ' ')}</span>
+                                <span className="bg-indigo-50 dark:bg-indigo-500/15 px-2 py-0.5 rounded-full text-indigo-700 dark:text-indigo-200 font-medium">{flow.flow_category.replace(/_/g, ' ')}</span>
                             </div>
                         </div>
                         <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed mt-2 mx-auto sm:mx-0 max-w-2xl">
@@ -147,7 +147,7 @@ export function AICallFlowDetailsContent({ flow }: AICallFlowDetailsContentProps
                                 {flow.required_resources.map((resource, index) => (
                                     <li key={index} className="flex gap-3 text-sm text-gray-600 dark:text-gray-400 group">
                                         <div className="mt-1 flex-shrink-0">
-                                            <div className="w-1.5 h-1.5 rounded-full bg-green-500/60 group-hover:bg-green-500 transition-colors" />
+                                            <div className="w-1.5 h-1.5 rounded-full bg-gradient-to-r from-blue-400 to-indigo-500 group-hover:bg-green-500 transition-colors" />
                                         </div>
                                         <span className="group-hover:text-gray-900 dark:group-hover:text-gray-200 transition-colors leading-normal">{resource}</span>
                                     </li>
@@ -159,14 +159,14 @@ export function AICallFlowDetailsContent({ flow }: AICallFlowDetailsContentProps
                     {/* Compatible ATS(s) */}
                     <div className="p-6 md:p-6 lg:p-6 flex flex-col gap-6 border-t border-gray-100 dark:border-gray-800">
                         <div className="flex flex-col gap-1">
-                            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 tracking-tight">Compatible ATS(s)</h3>
+                            <h3 className="text-lg font-bold tracking-tight gradient-text">Compatible ATS(s)</h3>
                             <p className="text-sm text-gray-500">Integrate seamlessly with your favorite ATS platforms</p>
                         </div>
                         <div className="flex flex-wrap items-center gap-6">
-                            <div className="w-16 h-16 sm:w-20 sm:h-20 border border-gray-200 dark:border-gray-700 rounded-2xl p-3 flex items-center justify-center bg-white dark:bg-gray-800 shadow-md hover:shadow-lg transition-shadow">
+                            <div className="w-16 h-16 sm:w-20 sm:h-20 border border-indigo-100 dark:border-white/10 rounded-2xl p-3 flex items-center justify-center bg-white/80 dark:bg-white/5 shadow-md shadow-indigo-500/10 hover:shadow-xl hover:-translate-y-1 transition-shadow">
                                 <img src="/images/JobAdder.jpg" alt="JobAdder" className="w-full h-full object-contain" />
                             </div>
-                            <div className="w-16 h-16 sm:w-20 sm:h-20 border border-gray-200 dark:border-gray-700 rounded-2xl p-3 flex items-center justify-center bg-white dark:bg-gray-800 shadow-md hover:shadow-lg transition-shadow">
+                            <div className="w-16 h-16 sm:w-20 sm:h-20 border border-indigo-100 dark:border-white/10 rounded-2xl p-3 flex items-center justify-center bg-white/80 dark:bg-white/5 shadow-md shadow-indigo-500/10 hover:shadow-xl hover:-translate-y-1 transition-shadow">
                                 <img src="/images/Bullhornconnector.jpg" alt="Bullhorn" className="w-full h-full object-contain" />
                             </div>
                         </div>
@@ -216,7 +216,7 @@ export function AICallFlowDetailsContent({ flow }: AICallFlowDetailsContentProps
                     <AlertDialogFooter className="pt-4">
                         <AlertDialogAction
                             onClick={() => _setErrorDetail(null)}
-                            className="w-full bg-red-500 hover:bg-red-600 text-white px-6 py-2.5 rounded-xl text-sm font-bold transition-colors h-auto border-none"
+                            className="w-full bg-gradient-to-r from-rose-500 to-rose-600 hover:shadow-lg hover:shadow-rose-500/30 hover:-translate-y-0.5 text-white px-6 py-2.5 rounded-xl text-sm font-bold transition-all h-auto border-none"
                         >
                             Continue
                         </AlertDialogAction>

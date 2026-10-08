@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
-import { X, ArrowLeft, Phone, CheckCircle2, Users, Clock, Check, Minus } from "lucide-react"
+import { X, ArrowLeft, Phone, CheckCircle2, Users, Clock, Check, Minus, ShieldAlert } from "lucide-react"
 import { LoaderOverlay } from "@/components/auth/loader-overlay"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/ui/use-toast"
 import { interviewService } from "@/services/interview-service"
 import { flowService } from "@/services/flow-service"
+import { profileService } from "@/services/profile-service"
 import {
     AlertDialog,
     AlertDialogAction,
@@ -100,6 +101,7 @@ export default function ReportPage({ featureUid }: ReportPageProps) {
         green_candidates: 0,
         consultant_hours_saved: 0
     })
+    const [currentUserRole, setCurrentUserRole] = useState("")
     const router = useRouter()
     const searchParams = useSearchParams()
 
@@ -150,6 +152,15 @@ export default function ReportPage({ featureUid }: ReportPageProps) {
             try {
                 setLoading(true)
 
+                try {
+                    const orgRes = await profileService.getOrganization()
+                    if (orgRes.data && orgRes.data.role) {
+                        setCurrentUserRole(orgRes.data.role)
+                    }
+                } catch (e) {
+                    console.error("Error fetching organization in report-page:", e)
+                }
+
                 let currentFlowCode = searchParams.get("code") || ""
                 if (currentFlowCode === "AICALL191") {
                     setIsDiner(true)
@@ -175,7 +186,7 @@ export default function ReportPage({ featureUid }: ReportPageProps) {
                         status: item.status,
                         ai_decision: item.ai_decision,
                         updated_at: item.updated_at,
-                        conversation_json: item.conversation_json || [],
+                        conversation_json: item?.conversation_json || [],
                         is_retry: item.is_retry
                     }))
                     setReports(normalized)
@@ -290,7 +301,34 @@ export default function ReportPage({ featureUid }: ReportPageProps) {
             iconColor: "text-orange-600 dark:text-orange-400",
             bgColor: "bg-orange-50 dark:bg-orange-900/20",
         },
-    ]
+    ];
+
+    if (currentUserRole === 'VOIP_USER') {
+        return (
+            <div className="flex-1 overflow-y-auto bg-gray-50/50 dark:bg-gray-950 p-4 md:p-8 flex items-center justify-center min-h-[calc(100vh-4rem)]">
+                <div className="max-w-md w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-8 shadow-sm text-center flex flex-col items-center">
+                    <div className="w-16 h-16 rounded-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 flex items-center justify-center text-amber-600 dark:text-amber-400 mb-5">
+                        <ShieldAlert className="w-8 h-8" />
+                    </div>
+                    <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 mb-3">
+                        Role: VOIP_USER
+                    </span>
+                    <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-2">
+                        Access Restricted
+                    </h2>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed mb-6">
+                        You do not have authorization to view reports for this call flow. Your account is configured for VoIP Business Line operations.
+                    </p>
+                    <Button
+                        onClick={() => router.push('/dashboard/phone-call-flows')}
+                        className="w-full bg-[#0f172a] dark:bg-gray-100 hover:bg-[#1e293b] dark:hover:bg-gray-200 text-white dark:text-gray-900 font-semibold h-11 rounded-lg text-sm transition-all shadow-sm"
+                    >
+                        Go to AI Call Builder
+                    </Button>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="flex-1 overflow-y-auto bg-gray-50/50 dark:bg-gray-950 p-4 md:p-8">
@@ -340,7 +378,7 @@ export default function ReportPage({ featureUid }: ReportPageProps) {
 
             <div className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold text-foreground mb-2">
+                    <h1 className="text-3xl font-extrabold gradient-text mb-2">
                         {featureName}
                     </h1>
                     <p className="text-muted-foreground">
@@ -350,7 +388,7 @@ export default function ReportPage({ featureUid }: ReportPageProps) {
                 {/* {!isDiner && (
                     <Button
                         onClick={() => setIsRecallModalOpen(true)}
-                        className="bg-primary hover:bg-primary/90 cursor-pointer"
+                        className="gradient-bg text-white shadow-md shadow-indigo-500/30 hover:-translate-y-0.5 border-0 cursor-pointer"
                     >
                         Retry Call Interview
                     </Button>
@@ -361,29 +399,29 @@ export default function ReportPage({ featureUid }: ReportPageProps) {
                 <Table>
                     <TableHeader>
                         {isDiner ? (
-                            <TableRow className="bg-muted/50">
-                                <TableHead className="font-semibold text-foreground text-nowrap">ID</TableHead>
-                                <TableHead className="font-semibold text-foreground text-nowrap">Customer Name</TableHead>
-                                <TableHead className="font-semibold text-foreground text-nowrap">Party Size</TableHead>
-                                <TableHead className="font-semibold text-foreground text-nowrap">Reservation Date</TableHead>
-                                <TableHead className="font-semibold text-foreground text-nowrap">Reservation Time</TableHead>
-                                <TableHead className="font-semibold text-foreground text-nowrap">Status</TableHead>
-                                <TableHead className="font-semibold text-foreground text-nowrap">Actions</TableHead>
+                            <TableRow className="bg-indigo-50/80 dark:bg-white/5 hover:bg-indigo-50/80 sticky top-0">
+                                <TableHead className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200 text-nowrap">ID</TableHead>
+                                <TableHead className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200 text-nowrap">Customer Name</TableHead>
+                                <TableHead className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200 text-nowrap">Party Size</TableHead>
+                                <TableHead className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200 text-nowrap">Reservation Date</TableHead>
+                                <TableHead className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200 text-nowrap">Reservation Time</TableHead>
+                                <TableHead className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200 text-nowrap">Status</TableHead>
+                                <TableHead className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200 text-nowrap">Actions</TableHead>
                             </TableRow>
                         ) : (
-                            <TableRow className="bg-muted/50">
-                                {/* <TableHead className="font-semibold text-foreground">Interview ID</TableHead> */}
-                                <TableHead className="font-semibold text-foreground">Candidate ID</TableHead>
-                                <TableHead className="font-semibold text-foreground">Candidate Name</TableHead>
-                                <TableHead className="font-semibold text-foreground">Candidate Email</TableHead>
-                                <TableHead className="font-semibold text-foreground">Candidate Mobile</TableHead>
-                                <TableHead className="font-semibold text-foreground">Recall</TableHead>
-                                {/* <TableHead className="font-semibold text-foreground">First Message Sent At</TableHead> */}
-                                {/* <TableHead className="font-semibold text-foreground">Status</TableHead> */}
-                                <TableHead className="font-semibold text-foreground">AI Decision</TableHead>
-                                <TableHead className="font-semibold text-foreground">Updated At</TableHead>
-                                <TableHead className="font-semibold text-foreground">Chat History</TableHead>
-                                {/* <TableHead className="font-semibold text-foreground">Retry call Interview</TableHead> */}
+                            <TableRow className="bg-indigo-50/80 dark:bg-white/5 hover:bg-indigo-50/80 sticky top-0">
+                                {/* <TableHead className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200">Interview ID</TableHead> */}
+                                <TableHead className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200">Candidate ID</TableHead>
+                                <TableHead className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200">Candidate Name</TableHead>
+                                <TableHead className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200">Candidate Email</TableHead>
+                                <TableHead className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200">Candidate Mobile</TableHead>
+                                <TableHead className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200">Recall</TableHead>
+                                {/* <TableHead className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200">First Message Sent At</TableHead> */}
+                                {/* <TableHead className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200">Status</TableHead> */}
+                                <TableHead className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200">AI Decision</TableHead>
+                                <TableHead className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200">Updated At</TableHead>
+                                <TableHead className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200">Chat History</TableHead>
+                                {/* <TableHead className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200">Retry call Interview</TableHead> */}
                             </TableRow>
                         )}
                     </TableHeader>
@@ -398,7 +436,7 @@ export default function ReportPage({ featureUid }: ReportPageProps) {
                             </TableRow>
                         ) : isDiner ? (
                             dinerReports.map((row) => (
-                                <TableRow key={row.id} className="hover:bg-muted/30">
+                                <TableRow key={row.id} className="hover:bg-indigo-50/60 dark:hover:bg-indigo-500/10 transition-colors animate-fade-up">
                                     <TableCell className="text-sm">{row.uid}</TableCell>
                                     <TableCell className="text-sm font-medium">{row.customer_name || "-"}</TableCell>
                                     <TableCell className="text-sm">{row.party_size}</TableCell>
@@ -430,7 +468,7 @@ export default function ReportPage({ featureUid }: ReportPageProps) {
                             ))
                         ) : (
                             reports.map((row) => (
-                                <TableRow key={row.id} className="hover:bg-muted/30">
+                                <TableRow key={row.id} className="hover:bg-indigo-50/60 dark:hover:bg-indigo-500/10 transition-colors animate-fade-up">
                                     {/* <TableCell className="text-sm">{row.uid}</TableCell> */}
                                     <TableCell className="text-sm">{row.candidate_id}</TableCell>
                                     <TableCell className="text-sm">{row.candidate_name}</TableCell>
@@ -446,11 +484,11 @@ export default function ReportPage({ featureUid }: ReportPageProps) {
                                     {/* <TableCell className="text-sm">{formatDate(row.started_at)}</TableCell> */}
                                     {/* <TableCell className="text-sm">{row.status}</TableCell> */}
                                     <TableCell className="text-sm">
-                                        {row.ai_decision === "user_disconnect"
-                                            ? "Incomplete"
-                                            : row.ai_decision === "machine_detected"
-                                            ? "Machine Detected"
-                                            : row.ai_decision}
+                                        {row.ai_decision?.toLowerCase() === "successful"
+                                            ? "Successful"
+                                            : row.ai_decision?.toLowerCase() === "unsuccessful"
+                                            ? "Unsuccessful"
+                                            : "No Answer"}
                                     </TableCell>
                                     <TableCell className="text-sm">{formatDate(row.updated_at)}</TableCell>
                                     <TableCell className="text-sm">
@@ -486,20 +524,20 @@ export default function ReportPage({ featureUid }: ReportPageProps) {
                 <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mt-6 mb-8 p-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-sm animate-in fade-in duration-300">
                     <div className="text-sm font-medium text-muted-foreground">
                         Showing{" "}
-                        <span className="font-semibold text-foreground">
+                        <span className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200">
                             {Math.min(totalCount, (currentPage - 1) * pageSize + 1)}
                         </span>{" "}
                         to{" "}
-                        <span className="font-semibold text-foreground">
+                        <span className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200">
                             {Math.min(totalCount, currentPage * pageSize)}
                         </span>{" "}
-                        of <span className="font-semibold text-foreground">{totalCount}</span> entries
+                        of <span className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200">{totalCount}</span> entries
                     </div>
                     <div className="flex items-center gap-2">
                         <Button
                             variant="outline"
                             size="sm"
-                            className="h-9 px-3 rounded-xl font-semibold border-gray-200 dark:border-gray-700 transition-all duration-200 disabled:opacity-50 cursor-pointer"
+                            className="h-9 px-3 rounded-xl font-semibold border-indigo-100 dark:border-white/10 bg-white/70 dark:bg-white/5 hover:bg-indigo-50 transition-all duration-200 disabled:opacity-50 cursor-pointer"
                             disabled={currentPage === 1}
                             onClick={() => handlePageChange(currentPage - 1)}
                         >
@@ -511,7 +549,7 @@ export default function ReportPage({ featureUid }: ReportPageProps) {
                         <Button
                             variant="outline"
                             size="sm"
-                            className="h-9 px-3 rounded-xl font-semibold border-gray-200 dark:border-gray-700 transition-all duration-200 disabled:opacity-50 cursor-pointer"
+                            className="h-9 px-3 rounded-xl font-semibold border-indigo-100 dark:border-white/10 bg-white/70 dark:bg-white/5 hover:bg-indigo-50 transition-all duration-200 disabled:opacity-50 cursor-pointer"
                             disabled={currentPage === totalPages}
                             onClick={() => handlePageChange(currentPage + 1)}
                         >
@@ -534,7 +572,7 @@ export default function ReportPage({ featureUid }: ReportPageProps) {
             <Dialog open={isChatModalOpen} onOpenChange={setIsChatModalOpen}>
                 <DialogContent className="max-w-xl p-0 overflow-hidden">
                     <div className="flex items-center justify-between p-4 border-b">
-                        <h2 className="text-xl font-semibold text-foreground">Chat History</h2>
+                        <h2 className="text-xl font-bold gradient-text">Chat History</h2>
                     </div>
                     <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
                         {(isDiner ? selectedDinerReport?.conversation_json : selectedInterview?.conversation_json) && (isDiner ? (selectedDinerReport?.conversation_json?.length || 0) > 0 : (selectedInterview?.conversation_json?.length || 0) > 0) ? (
@@ -561,7 +599,7 @@ export default function ReportPage({ featureUid }: ReportPageProps) {
             <Dialog open={isRecallModalOpen} onOpenChange={setIsRecallModalOpen}>
                 <DialogContent className="max-w-md">
                     <div className="flex items-center justify-between mb-4">
-                        <h2 className="text-xl font-semibold text-foreground">Recall</h2>
+                        <h2 className="text-xl font-bold gradient-text">Recall</h2>
                         {/* <button
                             onClick={() => setIsRecallModalOpen(false)}
                             className="rounded-sm opacity-70 transition-opacity hover:opacity-100 focus:outline-none cursor-pointer"
@@ -590,7 +628,7 @@ export default function ReportPage({ featureUid }: ReportPageProps) {
                             <Button
                                 onClick={handleRecall}
                                 disabled={isRecalling}
-                                className="bg-primary hover:bg-primary/90 cursor-pointer"
+                                className="gradient-bg text-white shadow-md shadow-indigo-500/30 hover:-translate-y-0.5 border-0 cursor-pointer"
                             >
                                 {isRecalling ? "Processing..." : "Recall"}
                             </Button>

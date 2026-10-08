@@ -66,11 +66,37 @@ export function PricingPlanPage({ featureUid }: PricingPlanPageProps) {
         }
     }, [featureUid])
 
+    const PLAN_ORDER_MAP: Record<string, number> = {
+        starter: 1,
+        growth: 2,
+        Growth: 2,
+        pro: 3,
+        professional: 3,
+        enterprise: 4,
+    }
+
+    const getPlanOrderRank = (name: string = ""): number => {
+        const lower = name.toLowerCase().trim()
+        for (const [key, rank] of Object.entries(PLAN_ORDER_MAP)) {
+            if (lower.includes(key)) return rank
+        }
+        return 99
+    }
+
+    const formatPlanName = (name: any): string => {
+        if (!name || typeof name !== "string") return ""
+        if (name.toLowerCase().trim() === "growing") return "Growth"
+        return name
+    }
+
     const fetchPlans = async () => {
         try {
             setIsLoading(true)
             const response = await flowService.getPricingPlans(featureUid!)
-            setPlans(response.data.results || [])
+            const results = (response.data.results || []).slice().sort((a: PricingPlan, b: PricingPlan) => {
+                return getPlanOrderRank(a.name) - getPlanOrderRank(b.name)
+            })
+            setPlans(results)
             setIsLoading(false)
         } catch (err: any) {
             console.error("Error fetching plans:", err)
@@ -109,7 +135,7 @@ export function PricingPlanPage({ featureUid }: PricingPlanPageProps) {
             <div className="min-h-screen bg-[#FFFFFF] p-8">
                 <div className="max-w-7xl mx-auto">
                     <div className="mb-12 text-center">
-                        <h1 className="text-4xl font-bold text-[#111827] mb-4">Pricing Plans</h1>
+                        <h1 className="text-4xl font-bold text-[#111827] mb-4 gradient-text pb-1">Pricing Plans</h1>
                         <p className="text-[#6B7280] text-lg">Select the plan that fits your needs.</p>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -136,7 +162,7 @@ export function PricingPlanPage({ featureUid }: PricingPlanPageProps) {
             <div className="max-w-7xl mx-auto">
                 {/* Header */}
                 <div className="text-center mb-16">
-                    <h1 className="text-4xl font-bold text-[#111827] mb-4 tracking-tight">Pricing Plans</h1>
+                    <h1 className="text-4xl font-bold text-[#111827] mb-4 tracking-tight gradient-text pb-1">Pricing Plans</h1>
                     <p className="text-lg text-[#6B7280]">Select the best plan for your recruitment needs.</p>
                 </div>
 
@@ -179,7 +205,7 @@ export function PricingPlanPage({ featureUid }: PricingPlanPageProps) {
 
                                 {/* Plan Content */}
                                 <div className="mb-6 text-center">
-                                    <h3 className="text-2xl font-bold text-[#111827] mb-2">{plan.name}</h3>
+                                    <h3 className="text-2xl font-bold text-[#111827] mb-2">{formatPlanName(plan.name)}</h3>
                                 </div>
 
                                 {/* Divider */}

@@ -86,7 +86,7 @@ export default function DashboardPage() {
     }
 
     return (
-        <div className="flex h-screen bg-white dark:bg-gray-950 overflow-hidden">
+        <div className="flex h-screen bg-background dark:bg-gray-950 overflow-hidden">
             {/* Sidebar - always visible on tablet+, toggleable on mobile */}
             <Sidebar
                 isOpen={isTabletOrLarger || isSidebarOpen}

@@ -350,7 +350,7 @@ export function OrganizationContent() {
     }
 
     return (
-        <main className="flex-1 overflow-y-auto bg-white dark:bg-gray-950 p-4 md:p-8">
+        <main className="flex-1 overflow-y-auto bg-transparent p-4 md:p-8">
             <LoaderOverlay isLoading={isLoading || isSaving} />
 
             <AlertDialog open={alertConfig.open} onOpenChange={(open) => setAlertConfig(prev => ({ ...prev, open }))}>
@@ -378,7 +378,7 @@ export function OrganizationContent() {
             </AlertDialog>
 
             <div className="max-w-4xl mx-auto space-y-8">
-                <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl shadow-sm overflow-hidden animate-in fade-in slide-in-from-top-4 duration-300">
+                <div className="bg-white/80 backdrop-blur-xl dark:bg-white/5 border border-gray-100 dark:border-gray-800 rounded-2xl shadow-sm shadow-violet-500/10 overflow-hidden animate-in fade-in slide-in-from-top-4 duration-300">
                     <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center flex-wrap gap-4">
                         <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">Business Details</h2>
                         {editOrg.compliance_status === "pending" && (
@@ -393,7 +393,7 @@ export function OrganizationContent() {
                         )}
                     </div>
                     {(editOrg.compliance_status === "pending" || editOrg.is_submitted_for_verification) && (
-                        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 p-4 rounded-xl flex items-center gap-3 m-4">
+                        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 p-4 rounded-2xl flex items-center gap-3 m-4">
                             <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
                             <p className="text-sm font-medium text-blue-700 dark:text-blue-300">
                                 Verification in progress.

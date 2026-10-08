@@ -1,5 +1,6 @@
 "use client"
 
+import { EmptyState, ListSkeleton } from '@/components/ui/empty-state'
 import { useState, useEffect } from "react"
 import {
     Table,
@@ -276,7 +277,7 @@ export function CallLogsContent() {
                 {/* Header */}
                 <div className="flex items-center justify-between">
                     <div>
-                        <h1 className="text-lg font-semibold text-foreground tracking-tight">Call Activity</h1>
+                        <h1 className="text-lg font-bold tracking-tight gradient-text">Call Activity</h1>
                         <p className="text-muted-foreground mt-2">View and manage call activities of your business.</p>
                     </div>
                     <Button
@@ -284,7 +285,7 @@ export function CallLogsContent() {
                             fetchConfig()
                             setIsConfigModalOpen(true)
                         }}
-                        className="gap-2 bg-black dark:bg-gray-100 hover:bg-gray-800 dark:hover:bg-gray-200 text-white dark:text-gray-900"
+                        className="gap-2 bg-gradient-to-r from-blue-600 to-violet-500 shadow-md shadow-blue-600/30 hover:brightness-110 hover:-translate-y-0.5 dark: text-white"
                     >
                         <Settings2 className="w-4 h-4" />
                         Settings
@@ -308,31 +309,29 @@ export function CallLogsContent() {
                 </div>
 
                 {/* Table Section */}
-                <Card className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+                <Card className="glass rounded-2xl overflow-hidden animate-fade-up">
                     <CardContent className="p-0">
                         <div className="overflow-x-auto">
                             <Table>
                                 <TableHeader>
-                                    <TableRow>
-                                        <TableHead className="w-[100px]">Type</TableHead>
-                                        <TableHead>From</TableHead>
-                                        <TableHead>To</TableHead>
-                                        <TableHead>Duration</TableHead>
-                                        <TableHead>Call Status</TableHead>
-                                        <TableHead>Created at</TableHead>
-                                        <TableHead className="text-right">Action</TableHead>
+                                    <TableRow className="bg-indigo-50/80 dark:bg-white/5 hover:bg-indigo-50/80">
+                                        <TableHead className="w-[100px] text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200">Type</TableHead>
+                                        <TableHead className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200">From</TableHead>
+                                        <TableHead className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200">To</TableHead>
+                                        <TableHead className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200">Duration</TableHead>
+                                        <TableHead className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200">Call Status</TableHead>
+                                        <TableHead className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200">Created at</TableHead>
+                                        <TableHead className="text-right text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200">Action</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {filteredCallLogs.length === 0 && !isLoading ? (
                                         <TableRow>
-                                            <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                                                No call logs found.
-                                            </TableCell>
+                                            <TableCell colSpan={7} className="p-0"><EmptyState bare title="No call activity yet" description="Calls handled by your AI flows will appear here." /></TableCell>
                                         </TableRow>
                                     ) : (
                                         filteredCallLogs.map((log) => (
-                                            <TableRow key={log.id}>
+                                            <TableRow key={log.id} className="hover:bg-indigo-50/60 dark:hover:bg-indigo-500/10 transition-colors animate-fade-up">
                                                 <TableCell className="font-medium">
                                                     <div className="flex items-center gap-2">
                                                         {log.state === "INCOMING" ? (
@@ -394,20 +393,20 @@ export function CallLogsContent() {
                     <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mt-6 mb-8 p-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm animate-in fade-in duration-300">
                         <div className="text-sm font-medium text-muted-foreground">
                             Showing{" "}
-                            <span className="font-semibold text-foreground">
+                            <span className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200">
                                 {Math.min(totalCount, (currentPage - 1) * pageSize + 1)}
                             </span>{" "}
                             to{" "}
-                            <span className="font-semibold text-foreground">
+                            <span className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200">
                                 {Math.min(totalCount, currentPage * pageSize)}
                             </span>{" "}
-                            of <span className="font-semibold text-foreground">{totalCount}</span> entries
+                            of <span className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200">{totalCount}</span> entries
                         </div>
                         <div className="flex items-center gap-2">
                             <Button
                                 variant="outline"
                                 size="sm"
-                                className="h-9 px-3 rounded-xl font-semibold border-gray-200 dark:border-gray-700 transition-all duration-200 disabled:opacity-50 cursor-pointer"
+                                className="h-9 px-3 rounded-xl font-semibold border-indigo-100 dark:border-white/10 bg-white/70 dark:bg-white/5 hover:bg-indigo-50 transition-all duration-200 disabled:opacity-50 cursor-pointer"
                                 disabled={currentPage === 1}
                                 onClick={() => handlePageChange(currentPage - 1)}
                             >
@@ -419,7 +418,7 @@ export function CallLogsContent() {
                             <Button
                                 variant="outline"
                                 size="sm"
-                                className="h-9 px-3 rounded-xl font-semibold border-gray-200 dark:border-gray-700 transition-all duration-200 disabled:opacity-50 cursor-pointer"
+                                className="h-9 px-3 rounded-xl font-semibold border-indigo-100 dark:border-white/10 bg-white/70 dark:bg-white/5 hover:bg-indigo-50 transition-all duration-200 disabled:opacity-50 cursor-pointer"
                                 disabled={currentPage === totalPages}
                                 onClick={() => handlePageChange(currentPage + 1)}
                             >
@@ -439,7 +438,7 @@ export function CallLogsContent() {
                                 <User className="w-5 h-5 text-primary" />
                             </div>
                             <div>
-                                <DialogTitle className="text-xl">
+                                <DialogTitle className="text-xl font-extrabold gradient-text">
                                     Call Conversation
                                 </DialogTitle>
                                 <DialogDescription className="mt-1">
@@ -578,7 +577,7 @@ export function CallLogsContent() {
                         <Button
                             onClick={handleUpdateConfig}
                             disabled={isConfigLoading}
-                            className="bg-black dark:bg-gray-100 text-white dark:text-gray-900"
+                            className="bg-gradient-to-r from-blue-600 to-violet-500 shadow-md shadow-blue-600/30 hover:brightness-110 hover:-translate-y-0.5 text-white"
                         >
                             {isConfigLoading ? "Saving..." : "Configure"}
                         </Button>
@@ -595,7 +594,7 @@ export function CallLogsContent() {
                             Confirm Deletion
                         </DialogTitle>
                         <DialogDescription className="py-2">
-                            Are you sure you want to delete the call log from <span className="font-semibold text-foreground">{logToDelete?.from_number}</span>? This action cannot be undone.
+                            Are you sure you want to delete the call log from <span className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-200">{logToDelete?.from_number}</span>? This action cannot be undone.
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter className="gap-2 sm:gap-0">

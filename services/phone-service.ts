@@ -63,5 +63,8 @@ export const phoneService = {
     },
     async releaseNumber(uid: string) {
         return api.delete(`/phone_number/${uid}/release`);
+    },
+    async getPhonePlans() {
+        return api.get("/payment/subscriptions/plans/phone");
     }
 };

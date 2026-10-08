@@ -1,18 +1,24 @@
 import React from "react"
 import type { Metadata } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
+import { Plus_Jakarta_Sans } from 'next/font/google'
 import { ThemeProvider } from "@/components/theme-provider"
+import { MotionEffects } from "@/components/motion-effects"
 import { BaseUIProvider } from "@/components/base-ui-provider"
 
 import './globals.css'
 
-const _geist = Geist({ subsets: ['latin'] })
-const _geistMono = Geist_Mono({ subsets: ['latin'] })
+const jakarta = Plus_Jakarta_Sans({ subsets: ['latin'], variable: '--font-jakarta', display: 'swap' })
 
 export const metadata: Metadata = {
-  title: 'Chat Prompts - Dashboard',
-  description: 'Create and manage chat prompts with AI assistance',
-  icons: [],
+  title: {
+    default: "CallPilot",
+    template: "%s | CallPilot",
+  },
+  description: "CallPilot account dashboard.",
+  robots: {
+    index: false,
+    follow: false,
+  }, // whole panel is private by default
 }
 
 export default function RootLayout({
@@ -25,13 +31,14 @@ export default function RootLayout({
       <head>
         <link rel="icon" href="/favicon.ico" sizes="any" />
       </head>
-      <body className="font-sans antialiased">
+      <body className={`${jakarta.variable} font-sans antialiased`}>
         <ThemeProvider
           attribute="class"
           defaultTheme="light"
           enableSystem={true}
           disableTransitionOnChange
         >
+          <MotionEffects />
           <BaseUIProvider>
             {children}
           </BaseUIProvider>

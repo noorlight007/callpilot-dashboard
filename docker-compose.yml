@@ -1,0 +1,16 @@
+services:
+  callpilot-dashboard:
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL}
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY}
+        NEXT_PUBLIC_TELNYX_API_KEY: ${NEXT_PUBLIC_TELNYX_API_KEY}
+        NEXT_PUBLIC_TELNYX_PUBLIC_KEY: ${NEXT_PUBLIC_TELNYX_PUBLIC_KEY}
+        NEXT_PUBLIC_TELNYX_CALL_CONTROL_APP_ID: ${NEXT_PUBLIC_TELNYX_CALL_CONTROL_APP_ID}
+        NEXT_PUBLIC_TELNYX_CREDENTIAL_CONNECTION_ID: ${NEXT_PUBLIC_TELNYX_CREDENTIAL_CONNECTION_ID}
+    env_file: .env   # runtime (server-side) vars, e.g. TELNYX_*
+    container_name: callpilot-dashboard
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-3000}:3000"

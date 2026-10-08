@@ -113,26 +113,53 @@ export function WhatsappConfigModal({ isOpen, onClose, onSuccess, configUid }: W
         setLoaderMessage("assigning webhook to you sender")
 
         try {
-            // Both requests must succeed
-            await Promise.all([
-                flowService.selectWhatsappSender({ sender_uid: selectedSenderUid }),
-                flowService.setupWhatsappTemplate({
+            // 1. Select WhatsApp sender first
+            let selectRes;
+            try {
+                selectRes = await flowService.selectWhatsappSender({ sender_uid: selectedSenderUid });
+            } catch (err: any) {
+                console.error("Error in selectWhatsappSender:", err);
+                setError(err.response?.data?.detail || err.response?.data?.message || "Failed to select WhatsApp sender. Please try again.");
+                setLoaderMessage("");
+                return;
+            }
+
+            // Show success message from selectWhatsappSender API
+            const selectSuccessMsg = selectRes.data?.message || selectRes.data?.detail || "Sender selected successfully";
+            setLoaderMessage(selectSuccessMsg);
+
+            // Wait briefly to allow the user to see the success message
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+
+            // Update loader message for the next API call
+            setLoaderMessage("creating your whatsapp template");
+
+            // 2. Then setup WhatsApp template
+            let setupRes;
+            try {
+                setupRes = await flowService.setupWhatsappTemplate({
                     config_uid: internalConfigUid,
                     sender_uid: selectedSenderUid
-                })
-            ])
+                });
+            } catch (err: any) {
+                console.error("Error in setupWhatsappTemplate:", err);
+                setError(err.response?.data?.detail || err.response?.data?.message || "Failed to setup WhatsApp template. Please try again.");
+                setLoaderMessage("");
+                return;
+            }
 
-            setSuccessMessage("creation your what's app template")
-            setStep(3) // Success step
+            const setupSuccessMsg = setupRes.data?.message || setupRes.data?.detail || "creation your what's app template";
+            setSuccessMessage(setupSuccessMsg);
+            setStep(3); // Success step
             if (onSuccess) {
-                onSuccess()
+                onSuccess();
             }
         } catch (err: any) {
-            console.error("Error in Step 2:", err)
-            setError(err.response?.data?.detail || "Failed to complete setup. Please try again.")
-            setLoaderMessage("")
+            console.error("Unexpected error in handleSubmit:", err);
+            setError("An unexpected error occurred. Please try again.");
+            setLoaderMessage("");
         } finally {
-            setIsLoading(false)
+            setIsLoading(false);
         }
     }
 
@@ -156,7 +183,9 @@ export function WhatsappConfigModal({ isOpen, onClose, onSuccess, configUid }: W
                     {error && (
                         <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800 rounded-xl flex items-start gap-3 text-red-600 dark:text-red-400 animate-in fade-in slide-in-from-top-2">
                             <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
-                            <p className="text-sm font-medium">{error}</p>
+                            <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium break-all whitespace-pre-wrap">{error}</p>
+                            </div>
                         </div>
                     )}
 
@@ -263,7 +292,7 @@ export function WhatsappConfigModal({ isOpen, onClose, onSuccess, configUid }: W
                             </div>
                             <Button
                                 onClick={onClose}
-                                className="w-full h-12 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 font-bold rounded-xl hover:bg-gray-800 dark:hover:bg-gray-200"
+                                className="w-full h-12 bg-gradient-to-r from-blue-600 to-violet-500 shadow-md shadow-blue-600/30 hover:brightness-110 hover:-translate-y-0.5 text-white font-bold rounded-xl dark:"
                             >
                                 Close
                             </Button>

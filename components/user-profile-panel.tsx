@@ -77,7 +77,7 @@ export function UserProfilePanel({ onClose }: UserProfilePanelProps) {
   return (
     <div
       ref={panelRef}
-      className="w-[280px] bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl shadow-2xl p-4 z-50 animate-in fade-in zoom-in duration-200"
+      className="w-[280px] bg-white/95 backdrop-blur-xl dark:bg-gray-900/95 border border-gray-100 dark:border-gray-800 rounded-2xl shadow-2xl p-4 z-50 animate-in fade-in zoom-in duration-200"
     >
       {/* User Info */}
       <div className="mb-4">
@@ -91,7 +91,7 @@ export function UserProfilePanel({ onClose }: UserProfilePanelProps) {
         </div>
 
         {/* Theme Toggles */}
-        <div className="flex items-center gap-1 bg-gray-50 dark:bg-gray-800 p-1 rounded-xl w-fit">
+        <div className="flex items-center gap-1 bg-gray-50 dark:bg-gray-800 p-1 rounded-2xl w-fit">
           <button
             onClick={() => setTheme('light')}
             className={cn(
@@ -131,20 +131,20 @@ export function UserProfilePanel({ onClose }: UserProfilePanelProps) {
       <nav className="space-y-1">
         <a
           href="/dashboard/profile"
-          className="block text-[14px] font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 px-3 py-2 rounded-xl transition"
+          className="block text-[14px] font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 px-3 py-2 rounded-2xl transition"
         >
           Your profile
         </a>
 
         <a
           href="/dashboard/help"
-          className="block text-[14px] font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 px-3 py-2 rounded-xl transition"
+          className="block text-[14px] font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 px-3 py-2 rounded-2xl transition"
         >
           Help
         </a>
         <button
           onClick={handleLogout}
-          className="w-full text-left text-[14px] font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 px-3 py-2 rounded-xl transition flex items-center gap-2"
+          className="w-full text-left text-[14px] font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 px-3 py-2 rounded-2xl transition flex items-center gap-2"
         >
           <LogOut size={16} />
           <span>Log out</span>

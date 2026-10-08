@@ -1,0 +1,39 @@
+name: Deploy to dev server
+
+# Push to staging -> automatically deploys to the dev server.
+on:
+  push:
+    branches: [staging]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install sshpass
+        run: sudo apt-get update && sudo apt-get install -y sshpass rsync
+
+      - name: Write deploy config from secrets
+        env:
+          DEV_HOST: ${{ secrets.DEV_HOST }}
+          DEV_USER: ${{ secrets.DEV_USER }}
+          DEV_SSH_PASSWORD: ${{ secrets.DEV_SSH_PASSWORD }}
+        run: |
+          {
+            echo "DEV_HOST=$DEV_HOST"
+            echo "DEV_USER=$DEV_USER"
+            echo "DEV_SSH_PASSWORD='$DEV_SSH_PASSWORD'"
+            echo "REMOTE_DIR=/var/www/callpilot-dashboard"
+            echo "DEPLOY_MODE=docker"
+            echo "SCREEN_NAME=callpilot"
+            echo "API_BASE_URL=https://devapi.callpilot.pro/api/v1"
+          } > .env.deploy
+
+      - name: Deploy
+        run: bash deploy.sh

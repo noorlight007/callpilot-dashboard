@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Zap, Check, Phone, Plus } from "lucide-react";
+import { Zap, Check, Phone, Plus, Plug } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -18,6 +18,15 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 
 export function CRMIntegrationContent() {
     const [platforms, setPlatforms] = useState<Platform[]>([]);
@@ -37,8 +46,72 @@ export function CRMIntegrationContent() {
         show: false,
         platform: null,
     });
+    
+    // RecruitCRM specific integration states
+    const [recruitCRMOpen, setRecruitCRMOpen] = useState(false);
+    const [recruitCRMAccessToken, setRecruitCRMAccessToken] = useState("");
+    const [isConnectingRecruitCRM, setIsConnectingRecruitCRM] = useState(false);
+    const [recruitCRMPlatform, setRecruitCRMPlatform] = useState<Platform | null>(null);
+
+    // Ashby specific integration states
+    const [ashbyOpen, setAshbyOpen] = useState(false);
+    const [ashbyApiKey, setAshbyApiKey] = useState("");
+    const [isConnectingAshby, setIsConnectingAshby] = useState(false);
+    const [ashbyPlatform, setAshbyPlatform] = useState<Platform | null>(null);
+
+
+
     const router = useRouter();
     const hasProcessedRef = useRef(false);
+
+    const displayPlatforms = [
+        {
+            slug: "jobadder",
+            name: "JobAdder",
+            logo: "/jobadder.jpeg",
+            isStatic: false,
+        },
+        {
+            slug: "recruitcrm",
+            name: "Recruit CRM",
+            logo: "/recruitcrm.png",
+            isStatic: false,
+        },
+        {
+            slug: "greenhouse",
+            name: "Greenhouse",
+            logo: "/greenhouse.png",
+            isStatic: false,
+        },
+        {
+            slug: "ashby",
+            name: "Ashby",
+            logo: "/ashby-social-preview.png",
+            isStatic: false,
+        },
+        {
+            slug: "icims",
+            name: "iCIMS",
+            logo: "plug",
+            isStatic: true,
+            statusType: "coming-soon",
+        },
+        {
+            slug: "sap-successfactors",
+            name: "SAP SuccessFactors",
+            logo: "plug",
+            isStatic: true,
+            statusType: "coming-soon",
+        },
+    ];
+
+    const getDynamicPlatform = (slug: string) => {
+        if (slug === "jobadder") return platforms.find(p => p.slug.startsWith("jobadder"));
+        if (slug === "recruitcrm") return platforms.find(p => p.slug.startsWith("recruitcrm"));
+        if (slug === "greenhouse") return platforms.find(p => p.name.toLowerCase() === "greenhouse" || p.slug.toLowerCase().includes("greenhouse"));
+        if (slug === "ashby") return platforms.find(p => p.slug.startsWith("ashby"));
+        return undefined;
+    };
 
     useEffect(() => {
         fetchPlatforms();
@@ -89,24 +162,48 @@ export function CRMIntegrationContent() {
     const checkOAuthCallback = async () => {
         try {
             const params = new URLSearchParams(window.location.search);
+            const error = params.get("error");
+            const errorDescription = params.get("error_description");
+
+            if (error) {
+                setErrorDialog({
+                    show: true,
+                    title: "Integration Error",
+                    message: errorDescription || error || "Failed to complete integration",
+                });
+                window.history.replaceState({}, document.title, window.location.pathname);
+                return;
+            }
+
             const code = params.get("code");
+            const state = params.get("state");
 
             if (code) {
                 setIsIntegrating(true);
                 const authToken = cookieUtils.get("access");
-                const platformSlug = localStorage.getItem("platformSlug");
-                const redirectUri = localStorage.getItem("redirectUri");
+                const platformSlug = localStorage.getItem("platformSlug") || state || "";
+                const redirectUri = localStorage.getItem("redirectUri") || (window.location.origin + window.location.pathname);
 
-                if (!authToken || !platformSlug || !redirectUri) {
+                if (!authToken) {
                     setIsIntegrating(false);
                     return;
                 }
 
-                const response = await crmService.connectPlatform(authToken, {
-                    code: code,
-                    redirect_uri: redirectUri,
-                    platform_slug: platformSlug,
-                });
+                const isGreenhouse = state === "greenhouse" || platformSlug?.toLowerCase().includes("greenhouse");
+
+                let response;
+                if (isGreenhouse) {
+                    response = await crmService.connectGreenhouseOAuth(authToken, {
+                        code: code,
+                        redirect_uri: redirectUri,
+                    });
+                } else {
+                    response = await crmService.connectPlatform(authToken, {
+                        code: code,
+                        redirect_uri: redirectUri,
+                        platform_slug: platformSlug || "jobadder",
+                    });
+                }
 
                 const data = await response.json();
 
@@ -114,7 +211,7 @@ export function CRMIntegrationContent() {
                     setSuccessDialog({
                         show: true,
                         title: "Success",
-                        message: `Successfully integrated ${platformSlug}!`,
+                        message: `Successfully integrated ${isGreenhouse ? "Greenhouse" : platformSlug}!`,
                     });
                     localStorage.removeItem("platformSlug");
                     localStorage.removeItem("redirectUri");
@@ -124,7 +221,7 @@ export function CRMIntegrationContent() {
                     setErrorDialog({
                         show: true,
                         title: "Integration Error",
-                        message: data.detail || data.platform_slug || "Failed to complete integration",
+                        message: data.detail || data.platform_slug || data.message || "Failed to complete integration",
                     });
                 }
             }
@@ -139,9 +236,127 @@ export function CRMIntegrationContent() {
         }
     };
 
-    const handleIntegrate = (platform: Platform) => {
+    const handleConnectRecruitCRM = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!recruitCRMAccessToken.trim()) return;
+
         try {
-            const oauthUrl = `${platform.base_url || "https://id.jobadder.com/"}connect/authorize?response_type=${platform.response_type}&client_id=${platform.client_id}&scope=${platform.scope}&redirect_uri=${platform.redirect_uri}&state=${platform.state}&prompt=login`;
+            setIsConnectingRecruitCRM(true);
+            const authToken = cookieUtils.get("access");
+            if (!authToken) {
+                setErrorDialog({
+                    show: true,
+                    title: "Authentication Error",
+                    message: "Authentication token not found. Please sign in again.",
+                });
+                return;
+            }
+
+            const response = await crmService.connectRecruitCRM(authToken, {
+                access_token: recruitCRMAccessToken.trim(),
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                setSuccessDialog({
+                    show: true,
+                    title: "Success",
+                    message: `Successfully integrated RecruitCRM!`,
+                });
+                setRecruitCRMOpen(false);
+                setRecruitCRMAccessToken("");
+                await fetchPlatforms();
+            } else {
+                setErrorDialog({
+                    show: true,
+                    title: "Integration Error",
+                    message: data.detail || data.message || "Failed to complete RecruitCRM integration",
+                });
+            }
+        } catch (err) {
+            setErrorDialog({
+                show: true,
+                title: "Integration Error",
+                message: "An error occurred while connecting RecruitCRM",
+            });
+        } finally {
+            setIsConnectingRecruitCRM(false);
+        }
+    };
+
+    const handleConnectAshby = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!ashbyApiKey.trim()) return;
+
+        try {
+            setIsConnectingAshby(true);
+            const authToken = cookieUtils.get("access");
+            if (!authToken) {
+                setErrorDialog({
+                    show: true,
+                    title: "Authentication Error",
+                    message: "Authentication token not found. Please sign in again.",
+                });
+                return;
+            }
+
+            const response = await crmService.connectAshby(authToken, {
+                access_token: ashbyApiKey.trim(),
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                setSuccessDialog({
+                    show: true,
+                    title: "Success",
+                    message: `Successfully integrated Ashby!`,
+                });
+                setAshbyOpen(false);
+                setAshbyApiKey("");
+                await fetchPlatforms();
+            } else {
+                setErrorDialog({
+                    show: true,
+                    title: "Integration Error",
+                    message: data.detail || data.message || "Failed to complete Ashby integration",
+                });
+            }
+        } catch (err) {
+            setErrorDialog({
+                show: true,
+                title: "Integration Error",
+                message: "An error occurred while connecting Ashby",
+            });
+        } finally {
+            setIsConnectingAshby(false);
+        }
+    };
+
+
+
+    const handleIntegrate = (platform: Platform) => {
+        if (platform.slug.startsWith("recruitcrm")) {
+            setRecruitCRMPlatform(platform);
+            setRecruitCRMAccessToken("");
+            setRecruitCRMOpen(true);
+            return;
+        }
+        if (platform.slug.startsWith("ashby")) {
+            setAshbyPlatform(platform);
+            setAshbyApiKey("");
+            setAshbyOpen(true);
+            return;
+        }
+        try {
+            let oauthUrl = "";
+            if (platform.name.toLowerCase() === "greenhouse" || platform.slug.toLowerCase().includes("greenhouse")) {
+                const greenhouseScope = platform.scope ? platform.scope.replace(/,/g, ' ') : '';
+                oauthUrl = `${platform.base_url || "https://auth.greenhouse.io/authorize"}?response_type=code&client_id=${platform.client_id}&redirect_uri=${encodeURIComponent(platform.redirect_uri)}&scope=${encodeURIComponent(greenhouseScope)}&state=${platform.state}`;
+            } else {
+                oauthUrl = `${platform.base_url || "https://id.jobadder.com/"}connect/authorize?response_type=${platform.response_type || "code"}&client_id=${platform.client_id}&scope=${platform.scope}&redirect_uri=${platform.redirect_uri}&state=${platform.state}&prompt=login`;
+            }
 
             localStorage.setItem("platformSlug", platform.slug);
             localStorage.setItem("redirectUri", platform.redirect_uri);
@@ -252,113 +467,242 @@ export function CRMIntegrationContent() {
                 </AlertDialogContent>
             </AlertDialog>
 
-            <div className="max-w-7xl mx-auto space-y-8">
+            {/* RecruitCRM Connection Dialog */}
+            <Dialog open={recruitCRMOpen} onOpenChange={setRecruitCRMOpen}>
+                <DialogContent className="dark:bg-gray-900 dark:border-gray-800 sm:max-w-[480px] rounded-2xl">
+                    <DialogHeader>
+                        <DialogTitle className="text-xl font-bold text-gray-900 dark:text-gray-100">
+                            Connect RecruitCRM Account
+                        </DialogTitle>
+                        <DialogDescription className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                            Please enter your RecruitCRM Access Token below to connect your account and enable automation features.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <form onSubmit={handleConnectRecruitCRM} className="space-y-6 py-4">
+                        <div className="space-y-2">
+                            <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                                Access Token <span className="text-red-500">*</span>
+                            </label>
+                            <Input
+                                type="text"
+                                placeholder="Enter RecruitCRM Access Token"
+                                value={recruitCRMAccessToken}
+                                onChange={(e) => setRecruitCRMAccessToken(e.target.value)}
+                                disabled={isConnectingRecruitCRM}
+                                required
+                                className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-2xl py-3 px-4 text-[15px] font-medium text-gray-900 dark:text-gray-100 focus-visible:ring-1 focus-visible:ring-gray-300 dark:focus-visible:ring-gray-700 transition-all placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                            />
+                        </div>
+                        <DialogFooter className="flex flex-col sm:flex-row gap-3 pt-2">
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => setRecruitCRMOpen(false)}
+                                disabled={isConnectingRecruitCRM}
+                                className="w-full sm:w-auto dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                type="submit"
+                                disabled={isConnectingRecruitCRM || !recruitCRMAccessToken.trim()}
+                                className="w-full sm:w-auto bg-gradient-to-r from-blue-600 to-violet-500 text-white shadow-md shadow-violet-500/25 dark:bg-gray-100 text-white dark:text-gray-900 hover:from-blue-700 hover:to-violet-600 hover:-translate-y-0.5 dark:hover:bg-gray-200 font-semibold flex items-center justify-center gap-2"
+                            >
+                                {isConnectingRecruitCRM ? (
+                                    <>
+                                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent" />
+                                        Connecting...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Zap className="w-4 h-4" />
+                                        Connect Account
+                                    </>
+                                )}
+                            </Button>
+                        </DialogFooter>
+                    </form>
+                </DialogContent>
+            </Dialog>
+
+            {/* Ashby Connection Dialog */}
+            <Dialog open={ashbyOpen} onOpenChange={setAshbyOpen}>
+                <DialogContent className="dark:bg-gray-900 dark:border-gray-800 sm:max-w-[480px] rounded-2xl">
+                    <DialogHeader>
+                        <DialogTitle className="text-xl font-bold text-gray-900 dark:text-gray-100">
+                            Connect Ashby Account
+                        </DialogTitle>
+                        <DialogDescription className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                            Please enter your Ashby API Key below to connect your account and enable automation features.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <form onSubmit={handleConnectAshby} className="space-y-6 py-4">
+                        <div className="space-y-2">
+                            <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                                API Key <span className="text-red-500">*</span>
+                            </label>
+                            <Input
+                                type="text"
+                                placeholder="Enter Ashby API Key"
+                                value={ashbyApiKey}
+                                onChange={(e) => setAshbyApiKey(e.target.value)}
+                                disabled={isConnectingAshby}
+                                required
+                                className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-2xl py-3 px-4 text-[15px] font-medium text-gray-900 dark:text-gray-100 focus-visible:ring-1 focus-visible:ring-gray-300 dark:focus-visible:ring-gray-700 transition-all placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                            />
+                        </div>
+                        <DialogFooter className="flex flex-col sm:flex-row gap-3 pt-2">
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => setAshbyOpen(false)}
+                                disabled={isConnectingAshby}
+                                className="w-full sm:w-auto dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                type="submit"
+                                disabled={isConnectingAshby || !ashbyApiKey.trim()}
+                                className="w-full sm:w-auto bg-gradient-to-r from-blue-600 to-violet-500 text-white shadow-md shadow-violet-500/25 dark:bg-gray-100 text-white dark:text-gray-900 hover:from-blue-700 hover:to-violet-600 hover:-translate-y-0.5 dark:hover:bg-gray-200 font-semibold flex items-center justify-center gap-2"
+                            >
+                                {isConnectingAshby ? (
+                                    <>
+                                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent" />
+                                        Connecting...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Zap className="w-4 h-4" />
+                                        Connect Account
+                                    </>
+                                )}
+                            </Button>
+                        </DialogFooter>
+                    </form>
+                </DialogContent>
+            </Dialog>
+
+
+
+            <div className="max-w-4xl mx-auto space-y-6">
                 <div>
-                    <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Available ATS to Connect</h1>
-                    <p className="text-gray-500 dark:text-gray-400 mt-2">Manage your ATS integrations and settings</p>
+                    <h1 className="text-2xl font-bold gradient-text pb-1">Available ATS to Connect</h1>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1.5 font-medium">Manage your ATS integrations and settings</p>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div className="space-y-4">
-                        {isLoading ? (
-                            <Card className="border-2 border-gray-100 dark:border-gray-800 h-full dark:bg-gray-800/50">
-                                <CardHeader>
-                                    <div className="flex items-start justify-between">
-                                        <div className="flex items-start gap-3 flex-1">
-                                            <div className="p-2.5 bg-gray-100 dark:bg-gray-800 rounded-lg">
-                                                <Skeleton className="w-6 h-6 rounded-md dark:bg-gray-700" />
-                                            </div>
-                                            <div className="flex-1 space-y-3">
-                                                <Skeleton className="h-6 w-3/4 dark:bg-gray-700" />
-                                                <Skeleton className="h-4 w-full dark:bg-gray-700" />
-                                                <Skeleton className="h-4 w-2/3 dark:bg-gray-700" />
-                                                <div className="flex gap-2">
-                                                    <Skeleton className="h-5 w-20 rounded-full dark:bg-gray-700" />
-                                                    <Skeleton className="h-5 w-24 rounded-full dark:bg-gray-700" />
-                                                </div>
-                                            </div>
+                {isLoading ? (
+                    <div className="bg-white/80 backdrop-blur-xl dark:bg-white/5 border border-gray-200 dark:border-gray-800 rounded-2xl overflow-hidden shadow-sm shadow-violet-500/10">
+                        <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                            {Array.from({ length: 6 }).map((_, index) => (
+                                <div key={index} className="flex items-center justify-between p-6">
+                                    <div className="flex items-center gap-4">
+                                        <Skeleton className="w-14 h-14 rounded-2xl dark:bg-gray-800" />
+                                        <div className="space-y-2">
+                                            <Skeleton className="h-5 w-32 dark:bg-gray-800" />
+                                            {(index === 0 || index === 2) && (
+                                                <Skeleton className="h-4 w-16 dark:bg-gray-800" />
+                                            )}
                                         </div>
                                     </div>
-                                </CardHeader>
-                                <CardContent>
-                                    <Skeleton className="h-10 w-full dark:bg-gray-700" />
-                                </CardContent>
-                            </Card>
-                        ) : platforms.length === 0 ? (
-                            <div className="text-center py-8 text-gray-500 dark:text-gray-400 font-medium">No integrations available at the moment.</div>
-                        ) : (
-                            platforms.map((platform) => (
-                                <Card
-                                    key={platform.id}
-                                    className="border-2 border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-800 hover:shadow-lg hover:border-gray-300 dark:hover:border-gray-600 transition-all duration-300 group h-full"
-                                >
-                                    <CardHeader>
-                                        <div className="flex items-start justify-between">
-                                            <div className="flex items-start gap-3 flex-1">
-                                                <div className="p-2.5 bg-blue-50 dark:bg-blue-900/20 rounded-lg group-hover:bg-blue-100 dark:group-hover:bg-blue-900/30 transition-colors">
-                                                    <img src="/jobadder.jpeg" className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                                    <Skeleton className="h-10 w-28 rounded-2xl dark:bg-gray-800" />
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                ) : (
+                    <div className="bg-white/80 backdrop-blur-xl dark:bg-white/5 border border-gray-200 dark:border-gray-800 rounded-2xl overflow-hidden shadow-sm shadow-violet-500/10">
+                        <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                            {[...displayPlatforms]
+                                .sort((a, b) => {
+                                    const aDynamic = getDynamicPlatform(a.slug);
+                                    const bDynamic = getDynamicPlatform(b.slug);
+                                    const aConnected = !a.isStatic && aDynamic?.is_connected ? 1 : 0;
+                                    const bConnected = !b.isStatic && bDynamic?.is_connected ? 1 : 0;
+                                    return bConnected - aConnected;
+                                })
+                                .map((p) => {
+                                    const dynamicPlatform = getDynamicPlatform(p.slug);
+                                    const isConnected = !p.isStatic && dynamicPlatform?.is_connected;
+                                
+                                return (
+                                    <div key={p.slug} className="flex items-center justify-between p-6 hover:bg-gray-50/50 dark:hover:bg-gray-800/20 transition-colors duration-200">
+                                        <div className="flex items-center gap-4">
+                                            {/* Logo */}
+                                            {p.slug === "jobadder" && (
+                                                <div className="w-14 h-14 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 flex items-center justify-center overflow-hidden flex-shrink-0 shadow-sm shadow-violet-500/10">
+                                                    <img src="/jobadder.jpeg" alt="JobAdder" className="w-full h-full object-cover" />
                                                 </div>
-                                                <div className="flex-1">
-                                                    <CardTitle className="text-md dark:text-gray-100">{platform.name} Integration</CardTitle>
-                                                    <CardDescription className="mt-2 text-gray-500 dark:text-gray-400">
-                                                        {platform.description || `Connect your ${platform.name} account to enable automation features.`}
-                                                    </CardDescription>
-                                                    {/* <div className="mt-3 flex items-center gap-2 flex-wrap">
-                                                        <span className="inline-block px-2.5 py-1 bg-green-500/10 dark:bg-green-500/20 rounded-full text-xs font-medium text-green-700 dark:text-green-400">
-                                                            Status: {platform.status}
-                                                        </span>
-                                                        {platform.is_connected && (
-                                                            <span className="px-2.5 py-1 bg-green-500/20 dark:bg-green-500/30 text-green-700 dark:text-green-400 rounded-full flex items-center gap-1.5 text-xs font-medium">
-                                                                <Check className="w-3.5 h-3.5" />
-                                                                Connected
-                                                            </span>
-                                                        )}
-                                                    </div> */}
+                                            )}
+                                            {p.slug === "recruitcrm" && (
+                                                <div className="w-14 h-14 rounded-2xl overflow-hidden flex-shrink-0 shadow-sm shadow-violet-500/10 border border-gray-200 bg-[#286cb3]">
+                                                    <img src="/recruitcrm.png" alt="Recruit CRM" className="w-full h-full object-cover" />
                                                 </div>
+                                            )}
+                                            {p.slug === "greenhouse" && (
+                                                <div className="w-14 h-14 rounded-2xl bg-[#008F52] flex items-center justify-center flex-shrink-0 p-3 shadow-sm shadow-violet-500/10">
+                                                    <img src="/greenhouse.png" alt="Greenhouse" className="w-full h-full object-contain brightness-0 invert" />
+                                                </div>
+                                            )}
+                                            {p.slug === "ashby" && (
+                                                <div className="w-14 h-14 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 flex items-center justify-center overflow-hidden flex-shrink-0 shadow-sm shadow-violet-500/10">
+                                                    <img src="/ashby-social-preview.png" alt="Ashby" className="w-full h-full object-cover" />
+                                                </div>
+                                            )}
+                                            {(p.slug === "icims" || p.slug === "sap-successfactors") && (
+                                                <div className="w-14 h-14 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 flex items-center justify-center flex-shrink-0 shadow-sm shadow-violet-500/10">
+                                                    <Plug className="w-6 h-6 text-gray-400 rotate-45" />
+                                                </div>
+                                            )}
+
+                                            {/* Details */}
+                                            <div className="flex flex-col">
+                                                <span className="text-base font-semibold text-gray-900 dark:text-gray-100">{p.name}</span>
+                                                {isConnected && (
+                                                    <div className="flex items-center gap-1.5 mt-1">
+                                                        <span className="w-2 h-2 rounded-full bg-[#10B981]" />
+                                                        <span className="text-xs font-semibold text-[#10B981]">Live</span>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
-                                    </CardHeader>
-                                    <CardContent className="flex flex-col gap-4">
-                                        {/* {platform.is_connected && (
-                                            <Link
-                                            href={`https://callpilot.pro/job-adder/document-uploader${platform.my_platform?.uid ? `?uid=${platform.my_platform.uid}` : ''}`}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium underline underline-offset-4 flex items-center gap-1.5 transition-colors"
-                                        >
-                                            JobAdder Document Uploader
-                                        </Link>
-                                        )} */}
-                                        
-                                        <div className="flex items-center gap-4">
-                                            <Button
-                                                onClick={() => handleIntegrate(platform)}
-                                                disabled={isIntegrating || platform.is_connected}
-                                                className={`gap-2 ${platform.is_connected
-                                                    ? "bg-green-500/50 text-white cursor-not-allowed"
-                                                    : "bg-black dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-900 dark:hover:bg-gray-200"
-                                                    } font-semibold transition-all duration-200`}
-                                            >
-                                                <Zap className="w-4 h-4" />
-                                                {platform.is_connected ? "Already Integrated" : `Integrate ${platform.name} Account`}
-                                            </Button>
 
-                                            {platform.is_connected && (
+                                        {/* Action / Status Badge */}
+                                        <div>
+                                            {p.isStatic ? (
+                                                p.statusType === "in-progress" ? (
+                                                    <span className="inline-flex items-center px-4 py-1.5 rounded-full text-sm font-semibold text-[#B7791F] bg-[#FFF4E5] dark:text-amber-400 dark:bg-amber-950/30">
+                                                        In Progress
+                                                    </span>
+                                                ) : (
+                                                    <span className="inline-flex items-center px-4 py-1.5 rounded-full text-sm font-semibold text-[#475467] bg-[#F2F4F7] dark:text-gray-400 dark:bg-gray-800">
+                                                        Coming Soon
+                                                    </span>
+                                                )
+                                            ) : isConnected ? (
                                                 <Button
-                                                    onClick={() => setDisconnectDialog({ show: true, platform })}
-                                                    disabled={isIntegrating}
-                                                    className="bg-red-600 hover:bg-red-700 text-white font-semibold transition-all duration-200"
+                                                    onClick={() => setDisconnectDialog({ show: true, platform: dynamicPlatform || null })}
+                                                    disabled={isIntegrating || isConnectingRecruitCRM || isConnectingAshby}
+                                                    className="bg-[#EF4444] hover:bg-red-600 text-white font-semibold px-6 py-2.5 rounded-2xl transition-all duration-200 text-sm h-10 border-none flex items-center justify-center"
                                                 >
                                                     Disconnect
                                                 </Button>
+                                            ) : (
+                                                <Button
+                                                    onClick={() => dynamicPlatform && handleIntegrate(dynamicPlatform)}
+                                                    disabled={isIntegrating || isConnectingRecruitCRM || isConnectingAshby || !dynamicPlatform}
+                                                    className="bg-[#0062FF] hover:bg-blue-600 text-white font-semibold px-6 py-2.5 rounded-2xl transition-all duration-200 text-sm h-10 border-none flex items-center justify-center"
+                                                >
+                                                    Connect to ATS
+                                                </Button>
                                             )}
                                         </div>
-                                    </CardContent>
-                                </Card>
-                            ))
-                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
                     </div>
-                </div>
+                )}
             </div>
         </main>
     );

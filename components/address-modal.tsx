@@ -165,73 +165,73 @@ export function AddressModal({ open, onOpenChange, onBack, onNext, selectedCount
     return (
         <>
             <Dialog open={open} onOpenChange={onOpenChange}>
-                <DialogContent className="max-w-2xl">
+                <DialogContent className="max-w-2xl glass rounded-3xl bg-white/90 dark:bg-gray-950/90 animate-scale-in shadow-2xl shadow-indigo-500/20">
                     <DialogHeader>
-                        <DialogTitle className="text-2xl">Address Information</DialogTitle>
+                        <DialogTitle className="text-2xl font-extrabold gradient-text">Address Information</DialogTitle>
                         <DialogDescription>Step 3 of 3: Provide address details</DialogDescription>
                     </DialogHeader>
 
                     <form onSubmit={handleSubmit} className="space-y-4">
                         <div>
-                            <label className="block text-sm font-semibold text-foreground mb-2">Customer Name *</label>
+                            <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Customer Name *</label>
                             <Input
                                 placeholder="e.g., Steven Peddie"
                                 name="customer_name"
                                 value={formData.customer_name}
                                 onChange={handleChange}
-                                className="border-2 border-border"
+                                className="border-2 border-border/70 rounded-xl bg-white/70 dark:bg-white/5 transition-all focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20"
                             />
                         </div>
 
                         <div>
-                            <label className="block text-sm font-semibold text-foreground mb-2">Street *</label>
+                            <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Street *</label>
                             <Input
                                 placeholder="e.g., Herkimer House Mill Road"
                                 name="street"
                                 value={formData.street}
                                 onChange={handleChange}
-                                className="border-2 border-border"
+                                className="border-2 border-border/70 rounded-xl bg-white/70 dark:bg-white/5 transition-all focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20"
                             />
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
-                                <label className="block text-sm font-semibold text-foreground mb-2">City *</label>
+                                <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">City *</label>
                                 <Input
                                     placeholder="e.g., Linlithgow"
                                     name="city"
                                     value={formData.city}
                                     onChange={handleChange}
-                                    className="border-2 border-border"
+                                    className="border-2 border-border/70 rounded-xl bg-white/70 dark:bg-white/5 transition-all focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20"
                                 />
                             </div>
                             <div>
-                                <label className="block text-sm font-semibold text-foreground mb-2">Region</label>
+                                <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Region</label>
                                 <Input
                                     placeholder="e.g., West Lothian, Scotland"
                                     name="region"
                                     value={formData.region}
                                     onChange={handleChange}
-                                    className="border-2 border-border"
+                                    className="border-2 border-border/70 rounded-xl bg-white/70 dark:bg-white/5 transition-all focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20"
                                 />
                             </div>
                             <div>
-                                <label className="block text-sm font-semibold text-foreground mb-2">Postal Code *</label>
+                                <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Postal Code *</label>
                                 <Input
                                     placeholder="e.g., EH49 7SF"
                                     name="postal_code"
                                     value={formData.postal_code}
                                     onChange={handleChange}
-                                    className="border-2 border-border"
+                                    className="border-2 border-border/70 rounded-xl bg-white/70 dark:bg-white/5 transition-all focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20"
                                 />
                             </div>
                             <div>
-                                <label className="block text-sm font-semibold text-foreground mb-2">Country *</label>
+                                <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Country *</label>
                                 <div className="relative">
                                     <button
                                         type="button"
                                         onClick={() => setShowCountriesDropdown(!showCountriesDropdown)}
-                                        className="cursor-pointer w-full px-4 py-3 border-2 border-border rounded-lg bg-background text-foreground text-left flex items-center justify-between hover:border-primary"
+                                        className="cursor-pointer w-full px-4 py-3 border-2 border-border/70 rounded-xl bg-white/70 dark:bg-white/5 transition-all text-foreground text-left flex items-center justify-between hover:border-primary"
                                     >
                                         <span>
                                             {formData.iso_country
@@ -244,13 +244,13 @@ export function AddressModal({ open, onOpenChange, onBack, onNext, selectedCount
                                     </button>
 
                                     {showCountriesDropdown && (
-                                        <div className="absolute top-full left-0 right-0 mt-2 bg-background border-2 border-border rounded-lg shadow-lg z-50 max-h-64 overflow-hidden flex flex-col">
+                                        <div className="absolute top-full left-0 right-0 mt-2 glass bg-white/95 dark:bg-gray-950/95 border-2 border-primary/20 rounded-xl shadow-xl shadow-indigo-500/20 animate-scale-in z-50 max-h-64 overflow-hidden flex flex-col">
                                             <div className="p-2 border-b border-border">
                                                 <Input
                                                     placeholder="Search countries..."
                                                     value={countrySearch}
                                                     onChange={(e) => handleCountrySearch(e.target.value)}
-                                                    className="border border-border"
+                                                    className="border border-primary/20 rounded-xl bg-white/60 dark:bg-white/5 hover:bg-primary/10"
                                                 />
                                             </div>
                                             <div className="overflow-y-auto">
@@ -259,7 +259,7 @@ export function AddressModal({ open, onOpenChange, onBack, onNext, selectedCount
                                                         key={country.country_code}
                                                         type="button"
                                                         onClick={() => handleSelectCountry(country.country_code)}
-                                                        className="cursor-pointer w-full px-4 py-3 text-left hover:bg-primary/10 text-foreground flex items-center justify-between border-b border-border/50"
+                                                        className="cursor-pointer w-full px-4 py-3 text-left hover:bg-gradient-to-r hover:from-primary/10 hover:to-transparent text-foreground flex items-center justify-between border-b border-border/50"
                                                     >
                                                         <div className="flex items-center gap-2 w-full">
                                                             <span className="text-muted-foreground font-normal text-xs">{country.country_code}</span>
@@ -277,19 +277,19 @@ export function AddressModal({ open, onOpenChange, onBack, onNext, selectedCount
                             </div>
                         </div>
 
-                        <DialogFooter className="flex gap-3 pt-6 border-t border-border">
+                        <DialogFooter className="flex gap-3 pt-6 border-t border-primary/10">
                             <Button
                                 type="button"
                                 onClick={onBack}
                                 variant="outline"
-                                className="cursor-pointer flex-1 border-2 border-border bg-gradient-to-r from-primary/20 to-primary/20 dark:hover:text-white/50"
+                                className="cursor-pointer flex-1 rounded-xl border-2 border-primary/20 bg-white/60 dark:bg-white/5 hover:bg-primary/10 hover:border-primary/40"
                             >
                                 <ArrowLeft className="w-4 h-4 mr-2" />
                                 Back
                             </Button>
                             <Button
                                 type="submit"
-                                className="cursor-pointer flex-1 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"
+                                className="cursor-pointer flex-1 gradient-bg text-white font-semibold rounded-xl border-0 shadow-lg shadow-indigo-500/30 hover:shadow-xl hover:shadow-indigo-500/40 hover:-translate-y-0.5"
                             >
                                 Next
                                 <ArrowRight className="w-4 h-4 ml-2" />

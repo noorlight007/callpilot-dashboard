@@ -11,7 +11,8 @@ import {
     Lock,
     Search,
     ChevronsUpDown,
-    AlertCircle
+    AlertCircle,
+    Clock
 } from 'lucide-react';
 import { Sidebar } from '@/components/sidebar';
 import { Topbar } from '@/components/topbar';
@@ -96,6 +97,8 @@ export default function PlatformActivationPage() {
     const [selectedPm, setSelectedPm] = useState<any>(null);
     const [isPmSelectorOpen, setIsPmSelectorOpen] = useState(false);
     const [isAddPaymentOpen, setIsAddPaymentOpen] = useState(false);
+    const [addPaymentError, setAddPaymentError] = useState<string | null>(null);
+    const addPaymentErrorRef = useRef<HTMLDivElement>(null);
 
     // Stripe states
     const [stripe, setStripe] = useState<Stripe | null>(null);
@@ -133,6 +136,7 @@ export default function PlatformActivationPage() {
     };
 
     const [isPlatformActivated, setIsPlatformActivated] = useState<boolean | null>(null);
+    const [isMotherStepCompleted, setIsMotherStepCompleted] = useState<boolean | null>(null);
 
     const fetchPaymentMethods = async () => {
         try {
@@ -170,6 +174,8 @@ export default function PlatformActivationPage() {
                 });
                 if (response.ok) {
                     const data = await response.json();
+                    const isStep1Completed = data.compliance_status === "approved";
+                    setIsMotherStepCompleted(isStep1Completed);
                     if (data.is_platform_activated) {
                         router.push('/dashboard');
                     } else {
@@ -177,16 +183,18 @@ export default function PlatformActivationPage() {
                     }
                 } else {
                     setIsPlatformActivated(false);
+                    setIsMotherStepCompleted(false);
                 }
             } catch (err) {
                 setIsPlatformActivated(false);
+                setIsMotherStepCompleted(false);
             }
         };
 
         fetchOrgStatus();
         fetchPaymentMethods();
         const initStripe = async () => {
-            const stripeInstance = await loadStripe('pk_test_51T28pm7kECw44sgCk3RxtMKst01YwUY02L1R93SaiJVPHloYcnWAar0NytN5TcduerTeWbS1yRa0hJehyB7N2JSC00WWO8y9aa');
+             const stripeInstance = await loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '');
             setStripe(stripeInstance);
         };
         initStripe();
@@ -276,24 +284,31 @@ export default function PlatformActivationPage() {
 
 
 
+    useEffect(() => {
+        if (addPaymentError && addPaymentErrorRef.current) {
+            addPaymentErrorRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    }, [addPaymentError]);
+
     const handleAddPaymentMethod = async () => {
         if (!stripe || !elements || !cardNumberRef.current) return;
+        setAddPaymentError(null);
 
         if (!isCardComplete) {
-            setErrorDetail("Please enter your card information");
+            setAddPaymentError("Please enter your card information");
             return;
         }
 
         if (!cardholderName.trim()) {
-            setErrorDetail("Please enter the name on card");
+            setAddPaymentError("Please enter the name on card");
             return;
         }
         if (!selectedCountry) {
-            setErrorDetail("Please select a country");
+            setAddPaymentError("Please select a country");
             return;
         }
         if (!addressLine1.trim()) {
-            setErrorDetail("Please enter the address line 1");
+            setAddPaymentError("Please enter the address line 1");
             return;
         }
 
@@ -316,7 +331,7 @@ export default function PlatformActivationPage() {
             });
 
             if (error) {
-                setErrorDetail(error.message || "Failed to create payment method");
+                setAddPaymentError(error.message || "Failed to create payment method");
                 setIsSubmitting(false);
                 return;
             }
@@ -348,11 +363,12 @@ export default function PlatformActivationPage() {
                 setSelectedCountry(null);
             } else {
                 const errData = await response.json();
-                toast.error(errData.detail || "Failed to add payment method");
+                const errMsg = errData.error?.message || errData.message || errData.details || errData.detail || "Failed to add payment method";
+                setAddPaymentError(errMsg);
             }
         } catch (err) {
             console.error(err);
-            toast.error("An unexpected error occurred");
+            setAddPaymentError("An unexpected error occurred");
         } finally {
             setIsSubmitting(false);
         }
@@ -381,7 +397,7 @@ export default function PlatformActivationPage() {
         }
     };
 
-    if (isAuthenticated === null || isPlatformActivated === null) {
+    if (isAuthenticated === null || isPlatformActivated === null || isMotherStepCompleted === null) {
         return (
             <div className="flex items-center justify-center h-screen bg-white dark:bg-gray-950">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 dark:border-gray-100" />
@@ -390,7 +406,7 @@ export default function PlatformActivationPage() {
     }
 
     return (
-        <div className="flex h-screen bg-white dark:bg-gray-950 overflow-hidden">
+        <div className="flex h-screen bg-background dark:bg-gray-950 overflow-hidden">
             {/* Sidebar */}
             <Sidebar
                 isOpen={isTabletOrLarger || isSidebarOpen}
@@ -405,7 +421,22 @@ export default function PlatformActivationPage() {
                     isSidebarOpen={isSidebarOpen}
                 />
 
-                <main className="flex-1 overflow-y-auto px-4 py-12">
+                {!isMotherStepCompleted ? (
+                    <main className="flex-1 flex items-center justify-center p-4 bg-gray-50/50 dark:bg-gray-950">
+                        <div className="max-w-md w-full text-center space-y-6 p-8 rounded-3xl border border-gray-200/60 dark:border-gray-800/60 bg-white/80 dark:bg-gray-900/60 backdrop-blur-xl shadow-xl animate-in fade-in slide-in-from-bottom-4 duration-500">
+                            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 shadow-violet-500/40 shadow-lg mb-2 text-white transition-transform duration-300 hover:scale-110 hover:-rotate-6">
+                                <Clock className="w-8 h-8 animate-pulse" />
+                            </div>
+                            <div className="space-y-2">
+                                <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">Verification Pending</h2>
+                                <p className="text-[15px] font-medium text-gray-500 dark:text-gray-400 leading-relaxed">
+                                    Your Business data is still waiting for verification. Please come back later.
+                                </p>
+                            </div>
+                        </div>
+                    </main>
+                ) : (
+                    <main className="flex-1 overflow-y-auto px-4 py-12">
                     <div className="max-w-2xl mx-auto">
                         <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-3xl p-8 shadow-sm space-y-8">
                             <div className="space-y-2">
@@ -501,7 +532,7 @@ export default function PlatformActivationPage() {
                             <Button
                                 onClick={handleActivate}
                                 disabled={isLoading}
-                                className="w-full bg-black hover:bg-black/90 text-white rounded-xl py-6 text-lg font-semibold"
+                                className="w-full bg-gradient-to-r from-blue-600 to-violet-500 shadow-md shadow-blue-600/30 hover:brightness-110 hover:-translate-y-0.5 text-white rounded-xl py-6 text-lg font-semibold"
                             >
                                 {isLoading && <Loader2 className="w-5 h-5 animate-spin mr-2" />}
                                 Activate AI Call
@@ -509,10 +540,16 @@ export default function PlatformActivationPage() {
                         </div>
                     </div>
                 </main>
+                )}
             </div>
 
             {/* Add Payment Method Dialog */}
-            <Dialog open={isAddPaymentOpen} onOpenChange={setIsAddPaymentOpen}>
+            <Dialog open={isAddPaymentOpen} onOpenChange={(open) => {
+                setIsAddPaymentOpen(open);
+                if (!open) {
+                    setAddPaymentError(null);
+                }
+            }}>
                 <DialogContent className="max-w-[calc(100vw-32px)] sm:max-w-[480px] p-5 sm:p-8 dark:bg-gray-950 border-gray-100 dark:border-gray-800 rounded-2xl sm:rounded-3xl gap-6 overflow-y-auto max-h-[90vh]">
                     <DialogHeader className="p-0 space-y-2 text-left">
                         <DialogTitle className="text-[22px] font-bold text-gray-900 dark:text-gray-100">
@@ -522,6 +559,21 @@ export default function PlatformActivationPage() {
                             Add your credit card details below. This card will be saved to your account.
                         </p>
                     </DialogHeader>
+
+                    {addPaymentError && (
+                        <div
+                            ref={addPaymentErrorRef}
+                            className="p-4 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800/50 flex items-start gap-3 animate-in fade-in slide-in-from-top-1 duration-200"
+                        >
+                            <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+                            <div className="flex-1 min-w-0">
+                                <h4 className="text-[14px] font-bold text-red-600 dark:text-red-400">Error</h4>
+                                <p className="text-[13px] text-red-500 dark:text-red-400/90 font-medium mt-0.5 leading-relaxed">
+                                    {addPaymentError}
+                                </p>
+                            </div>
+                        </div>
+                    )}
 
                     <div className="space-y-6">
                         <div className="space-y-2">
@@ -630,7 +682,7 @@ export default function PlatformActivationPage() {
 
                     <div className="flex flex-col sm:flex-row justify-end gap-3 pt-6">
                         <Button onClick={() => setIsAddPaymentOpen(false)} variant="outline" className="rounded-xl h-auto py-3">Cancel</Button>
-                        <Button onClick={handleAddPaymentMethod} disabled={isSubmitting} className="rounded-xl h-auto py-3 bg-black text-white hover:bg-black/90">
+                        <Button onClick={handleAddPaymentMethod} disabled={isSubmitting} className="rounded-xl h-auto py-3 bg-gradient-to-r from-blue-600 to-violet-500 shadow-md shadow-blue-600/30 hover:brightness-110 hover:-translate-y-0.5 text-white">
                             {isSubmitting && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
                             Add payment method
                         </Button>

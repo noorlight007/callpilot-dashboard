@@ -8,5 +8,10 @@ instrumentation-client.ts
 # Common ignores
 node_modules/
 .next/
+.env
 .env*.local
 .DS_Store
+.env.deploy
+.env.*
+!.env.example
+!.env.deploy.example

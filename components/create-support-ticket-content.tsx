@@ -240,7 +240,7 @@ export function CreateSupportTicketContent() {
     };
 
     return (
-        <div className="flex-1 overflow-y-auto bg-[#F9FAFB] dark:bg-gray-950">
+        <div className="flex-1 overflow-y-auto bg-transparent">
             <div className="max-w-[800px] mx-auto py-10 px-4 sm:px-6">
                 {/* Back Link */}
                 <button
@@ -253,16 +253,16 @@ export function CreateSupportTicketContent() {
 
                 {/* Header */}
                 <div className="flex items-center gap-4 mb-10">
-                    <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-blue-800">
+                    <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600 shadow-violet-500/40 shadow-lg border dark: text-white transition-transform duration-300 hover:scale-110 hover:-rotate-6">
                         <MessageSquare size={24} />
                     </div>
                     <div>
-                        <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Create New Ticket</h1>
+                        <h1 className="text-2xl font-semibold gradient-text pb-1">Create New Ticket</h1>
                         <p className="text-gray-500 dark:text-gray-400 mt-1">Tell us about your issue and we'll help you out</p>
                     </div>
                 </div>
 
-                <Card className="p-8 border-gray-100 dark:border-gray-800 shadow-sm dark:bg-gray-900/50 rounded-2xl">
+                <Card className="p-8 border-gray-100 dark:border-gray-800 shadow-sm shadow-violet-500/10 dark:bg-gray-900/50 rounded-2xl">
                     <form onSubmit={handleSubmit} className="space-y-6">
                         {/* Subject */}
                         <div className="space-y-1">
@@ -317,12 +317,12 @@ export function CreateSupportTicketContent() {
 
                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                                 {attachments.map((att) => (
-                                    <div key={att.tempId} className="relative group aspect-square rounded-xl overflow-hidden border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900">
+                                    <div key={att.tempId} className="relative group aspect-square rounded-2xl overflow-hidden border border-gray-100 dark:border-gray-800 bg-white/80 backdrop-blur-xl dark:bg-white/5">
                                         {att.preview ? (
                                             <img src={att.preview} alt={att.name} className="w-full h-full object-cover" />
                                         ) : (
                                             <div className="w-full h-full flex flex-col items-center justify-center p-2 text-center">
-                                                <div className="w-10 h-10 rounded-full bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center text-blue-600 dark:text-blue-400 mb-2">
+                                                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 shadow-violet-500/40 shadow-lg flex items-center justify-center mb-2 text-white transition-transform duration-300 hover:scale-110 hover:-rotate-6">
                                                     <FileText size={20} />
                                                 </div>
                                                 <p className="text-[10px] font-medium text-gray-500 dark:text-gray-400 truncate w-full px-2">
@@ -349,9 +349,9 @@ export function CreateSupportTicketContent() {
 
                                 <div
                                     onClick={() => fileInputRef.current?.click()}
-                                    className="aspect-square border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl flex flex-col items-center justify-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors group"
+                                    className="aspect-square border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-2xl flex flex-col items-center justify-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors group"
                                 >
-                                    <div className="w-10 h-10 rounded-full bg-gray-50 dark:bg-gray-800 flex items-center justify-center text-gray-400 group-hover:text-blue-500 group-hover:bg-blue-50 dark:group-hover:bg-blue-900/20 transition-colors">
+                                    <div className="w-10 h-10 rounded-full bg-gray-50 flex items-center justify-center text-gray-400 group-hover: group-hover:bg-gradient-to-br from-violet-500 to-indigo-600 shadow-violet-500/40 shadow-lg dark:group-hover:bg-blue-900/20 transition-colors text-white transition-transform duration-300 hover:scale-110 hover:-rotate-6">
                                         <FilePlus size={20} />
                                     </div>
                                     <p className="text-[11px] font-bold text-gray-400 group-hover:text-blue-500 transition-colors uppercase tracking-wider">Attach</p>
@@ -377,7 +377,7 @@ export function CreateSupportTicketContent() {
                             <Button
                                 type="submit"
                                 disabled={isSubmitting || attachments.some(att => att.loading)}
-                                className="w-full h-12 bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-xl text-base font-semibold shadow-lg shadow-blue-500/20 transition-all hover:scale-[1.01] active:scale-[0.99] gap-2"
+                                className="w-full h-12 bg-gradient-to-r from-blue-600 to-violet-500 text-white shadow-md shadow-violet-500/25 hover:from-blue-700 hover:to-violet-600 hover:-translate-y-0.5 text-white rounded-2xl text-base font-semibold shadow-lg shadow-blue-500/20 transition-all hover:scale-[1.01] active:scale-[0.99] gap-2"
                             >
                                 {isSubmitting ? (
                                     <>
@@ -397,10 +397,10 @@ export function CreateSupportTicketContent() {
             </div>
 
             <AlertDialog open={errorAlert.open} onOpenChange={(open) => setErrorAlert({ ...errorAlert, open })}>
-                <AlertDialogContent className="bg-white dark:bg-gray-900 border-gray-100 dark:border-gray-800 rounded-2xl max-w-[450px]">
+                <AlertDialogContent className="bg-white/80 backdrop-blur-xl dark:bg-white/5 border-gray-100 dark:border-gray-800 rounded-2xl max-w-[450px]">
                     <AlertDialogHeader>
                         <AlertDialogTitle className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                            <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center text-red-600 dark:text-red-400">
+                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-rose-500 to-rose-600 shadow-rose-500/40 shadow-lg flex items-center justify-center text-white transition-transform duration-300 hover:scale-110 hover:-rotate-6">
                                 <X size={18} />
                             </div>
                             {errorAlert.title}
@@ -410,7 +410,7 @@ export function CreateSupportTicketContent() {
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter className="mt-8">
-                        <AlertDialogAction className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-xl px-8 h-12 font-bold transition-all shadow-lg shadow-blue-500/20">
+                        <AlertDialogAction className="bg-gradient-to-r from-blue-600 to-violet-500 text-white shadow-md shadow-violet-500/25 hover:from-blue-700 hover:to-violet-600 hover:-translate-y-0.5 text-white rounded-2xl px-8 h-12 font-bold transition-all shadow-lg shadow-blue-500/20">
                             Got it
                         </AlertDialogAction>
                     </AlertDialogFooter>

@@ -38,6 +38,14 @@ export const profileService = {
         return api.patch("/organizations/me", data);
     },
 
+    async getMyOrganizations() {
+        return api.get("/organizations/my_organizations");
+    },
+
+    async switchOrganization(uid: string) {
+        return api.put(`/organizations/switch/${uid}`);
+    },
+
     async getSupportTickets() {
         return api.get("/organizations/support_ticket");
     },
@@ -80,7 +88,7 @@ export const profileService = {
         return api.get("/organizations/users/");
     },
 
-    async updateOrganizationUser(uid: string, data: { role?: string; email?: string; password?: string; sent_email_notifications?: boolean }) {
+    async updateOrganizationUser(uid: string, data: { role?: string; email?: string; password?: string; sent_email_notifications?: boolean; status?: string }) {
         return api.patch(`/organizations/users/${uid}`, data);
     },
 

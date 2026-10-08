@@ -95,6 +95,10 @@ export const flowService = {
         return api.get(`/twilio/whatsapp/template/${configUid}/`);
     },
 
+    async deleteWhatsappTemplate(configUid: string) {
+        return api.delete(`/twilio/whatsapp/template/${configUid}/`);
+    },
+
     async createWhatsappAccount(data: { account_sid: string, auth_token: string }) {
         return api.post("/twilio/whatsapp/account/", data);
     },

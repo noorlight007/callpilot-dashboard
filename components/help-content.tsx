@@ -86,23 +86,24 @@ export function HelpContent() {
     const router = useRouter();
     return (
         <div className="flex-1 overflow-y-auto bg-[#F9FAFB] dark:bg-gray-950">
-            <div className="max-w-[800px] mx-auto py-12 px-4 sm:px-6">
+            <div className="max-w-[1100px] mx-auto py-10 px-4 sm:px-6 lg:px-8">
                 {/* Header */}
                 <div className="text-center mb-12">
-                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 mb-4 border border-blue-100 dark:border-blue-800">
+                    {/* <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600 shadow-violet-500/40 shadow-lg mb-4 border dark: text-white transition-transform duration-300 hover:scale-110 hover:-rotate-6">
                         <Headphones size={24} />
-                    </div>
-                    <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Help Center</h1>
+                    </div> */}
+                    <h1 className="text-3xl font-bold mb-2 gradient-text pb-1">Help Center</h1>
                     <p className="text-gray-500 dark:text-gray-400">Find answers to common questions about Callpilot</p>
                 </div>
 
-                {/* FAQ Sections */}
-                <div className="space-y-6">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+                    {/* FAQ Sections */}
+                <div className="lg:col-span-2 space-y-6">
                     {helpSections.map((section, sectionIdx) => (
-                        <Card key={sectionIdx} className="overflow-hidden border-gray-200 dark:border-gray-800 shadow-sm rounded-2xl">
+                        <Card key={sectionIdx} className="overflow-hidden border-gray-200 dark:border-gray-800 shadow-sm shadow-violet-500/10 rounded-2xl">
                             <div className="p-6">
                                 <div className="flex items-center gap-3 mb-6">
-                                    <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-blue-800">
+                                    <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 shadow-violet-500/40 shadow-lg border dark: text-white transition-transform duration-300 hover:scale-110 hover:-rotate-6">
                                         <section.icon size={20} />
                                     </div>
                                     <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{section.title}</h2>
@@ -134,6 +135,28 @@ export function HelpContent() {
                     ))}
                 </div>
 
+                {/* Sidebar Action */}
+                    <div className="lg:col-span-1 space-y-6">
+                        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">Need More Help?</h2>
+                        <Card className="bg-[#EBF2FF] dark:bg-blue-900/10 border-[#D6E6FF] dark:border-blue-800/30 p-6 sm:p-8 lg:p-6 xl:p-8 w-full text-center flex flex-col items-center">
+                            <div className="w-14 h-14 rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 shadow-violet-500/40 shadow-lg flex items-center justify-center mb-6 border dark: text-white transition-transform duration-300 hover:scale-110 hover:-rotate-6">
+                                <Send size={24} className="ml-0.5" />
+                            </div>
+                            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Write a New Ticket</h3>
+                            <p className="text-sm text-gray-500 dark:text-gray-400 mb-8 leading-relaxed">
+                                Describe your issue and our support team will get back to you within 24 hours.
+                            </p>
+                            <Button
+                                onClick={() => router.push('/dashboard/help/support-tickets/create')}
+                                className="w-full bg-gradient-to-r from-blue-600 to-violet-500 text-white shadow-md shadow-violet-500/25 hover:from-blue-700 hover:to-violet-600 hover:-translate-y-0.5 text-white px-4 sm:px-8 lg:px-4 xl:px-6 py-6 rounded-2xl text-[13px] xl:text-sm font-bold transition-all hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2"
+                            >
+                                <Send size={16} />
+                                Write a Support Ticket
+                            </Button>
+                        </Card>
+                    </div>
+                </div>
+
                 {/* Footer Support Ticket */}
                 <div className="mt-12">
                     <Card className="bg-blue-50/50 dark:bg-blue-900/10 border-blue-100 dark:border-blue-900/30 rounded-2xl p-8 text-center">
@@ -143,7 +166,7 @@ export function HelpContent() {
                         </p>
                         <Button
                             onClick={() => router.push('/dashboard/help/support-tickets')}
-                            className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white px-6 rounded-xl h-auto text-base font-semibold transition-all hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-blue-500/20"
+                            className="bg-gradient-to-r from-blue-600 to-violet-500 text-white shadow-md shadow-violet-500/25 hover:from-blue-700 hover:to-violet-600 hover:-translate-y-0.5 text-white px-6 rounded-2xl h-auto text-base font-semibold transition-all hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-blue-500/20"
                         >
                             <Send size={18} className="mr-2" />
                             Write a Support Ticket

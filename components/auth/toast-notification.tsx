@@ -19,7 +19,7 @@ export function ToastNotification({ title, description, variant = "default", onC
     }, [onClose])
 
     return (
-        <div className={`fixed top-4 right-4 z-[110] flex w-full max-w-sm overflow-hidden rounded-lg border bg-background shadow-lg animate-in slide-in-from-right duration-300 ${variant === "destructive" ? "border-destructive" : "border-border"
+        <div className={`fixed top-4 right-4 z-[110] flex w-full max-w-sm overflow-hidden rounded-2xl border glass shadow-xl animate-in slide-in-from-right duration-300 ${variant === "destructive" ? "border-destructive" : "border-border"
             }`}>
             <div className="flex w-full p-4">
                 <div className="flex flex-shrink-0 items-start">

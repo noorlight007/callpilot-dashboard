@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { MoreHorizontal, Globe, Loader2, Bookmark, Settings2, CheckCircle2 } from "lucide-react"
+import { MoreHorizontal, Globe, Loader2, Bookmark, Settings2, CheckCircle2, ShieldAlert } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { LoaderOverlay } from "@/components/auth/loader-overlay"
 import { ToastNotification } from "@/components/auth/toast-notification"
@@ -24,6 +24,7 @@ import {
 import Link from "next/link"
 import { BASE_URL } from "@/lib/baseUrl";
 import { cookieUtils } from "@/services/auth-service";
+import { profileService } from "@/services/profile-service";
 
 interface Flow {
     id: number;
@@ -54,6 +55,11 @@ export function PhoneCallFlowsContent() {
     const [myFlows, setMyFlows] = useState<MyFlowItem[]>([])
     const [error, setError] = useState<string | null>(null)
     const [toast, setToast] = useState<any>(null)
+    const [currentUserRole, setCurrentUserRole] = useState<string>("")
+
+    const [isUnauthorizedOpen, setIsUnauthorizedOpen] = useState(false)
+    const [unauthorizedTitle, setUnauthorizedTitle] = useState("Access Restricted")
+    const [unauthorizedDescription, setUnauthorizedDescription] = useState("")
 
     const router = useRouter()
 
@@ -66,7 +72,19 @@ export function PhoneCallFlowsContent() {
 
     useEffect(() => {
         fetchMyFlows()
+        fetchUserRole()
     }, [])
+
+    const fetchUserRole = async () => {
+        try {
+            const orgRes = await profileService.getOrganization();
+            if (orgRes.data && orgRes.data.role) {
+                setCurrentUserRole(orgRes.data.role);
+            }
+        } catch (err) {
+            console.error("Error fetching user role in phone call flows:", err);
+        }
+    }
 
     const fetchMyFlows = async () => {
         try {
@@ -92,27 +110,52 @@ export function PhoneCallFlowsContent() {
     }
 
     const handleConfigureClick = (uid: string, name: string, code: string) => {
+        const isVoipFlow = Boolean(name?.toLowerCase().includes("voip") || code?.toLowerCase().includes("voip"));
+        if (currentUserRole === "VOIP_USER" && !isVoipFlow) {
+            setUnauthorizedTitle("Access Restricted");
+            setUnauthorizedDescription("You do not have authorization to configure this call flow. Your account role (VOIP_USER) is restricted to VoIP Business Line operations.");
+            setIsUnauthorizedOpen(true);
+            return;
+        }
+
+        if (isVoipFlow) {
+            router.push(`/dashboard/voip/${uid}`)
+            return
+        }
         router.push(`/dashboard/configure/${uid}?name=${encodeURIComponent(name)}&code=${code}`)
+    }
+
+    const handleReportsClick = (uid: string, name: string, code: string) => {
+        const isVoipFlow = Boolean(name?.toLowerCase().includes("voip") || code?.toLowerCase().includes("voip"));
+        if (currentUserRole === "VOIP_USER" && !isVoipFlow) {
+            setUnauthorizedTitle("Access Restricted");
+            setUnauthorizedDescription("You do not have authorization to view reports for this call flow. Your account role (VOIP_USER) is restricted to VoIP Business Line operations.");
+            setIsUnauthorizedOpen(true);
+            return;
+        }
+
+        if (isVoipFlow) {
+            router.push(`/dashboard/voip-reports/${uid}`);
+        } else if (code === "AICALL191") {
+            router.push(`/dashboard/report?code=${code}`);
+        } else {
+            router.push(`/dashboard/report/${uid}`);
+        }
+    }
+
+    const handleFlowOptionsClick = (e: React.MouseEvent) => {
+        if (currentUserRole === "VOIP_USER") {
+            e.preventDefault();
+            setUnauthorizedTitle("Access Restricted");
+            setUnauthorizedDescription("You do not have authorization to access AI Call Flow Options. Your account role (VOIP_USER) is restricted to VoIP Business Line operations.");
+            setIsUnauthorizedOpen(true);
+        }
     }
 
     const FlowCard = ({ item }: { item: MyFlowItem }) => {
         const { flow } = item;
         return (
             <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden flex flex-col h-full hover:shadow-md transition-shadow duration-200">
-                {/* Image Section */}
-                {/* <div className="p-4 flex gap-4 border-b border-gray-100 dark:border-gray-700">
-                    <div className="flex flex-col justify-center">
-                        <div className="flex items-center gap-2">
-                            <div className="w-14 h-14 border border-gray-200 dark:border-gray-600 rounded-md p-2 flex items-center justify-center bg-white dark:bg-gray-700">
-                                <img src="/images/JobAdder.jpg" alt="JobAdder" className="w-full h-full object-contain" />
-                            </div>
-                            <div className="w-14 h-14 border border-gray-200 dark:border-gray-600 rounded-md p-2 flex items-center justify-center bg-white dark:bg-gray-700">
-                                <img src="/images/Bullhornconnector.jpg" alt="Bullhorn" className="w-full h-full object-contain" />
-                            </div>
-                        </div>
-                    </div>
-                </div> */}
-
                 {/* Content Section */}
                 <div className="p-6 flex-1 flex flex-col">
                     <div className="flex gap-4 items-start mb-6">
@@ -145,13 +188,12 @@ export function PhoneCallFlowsContent() {
                         >
                             Configure
                         </Button>
-                        <Link href={flow.code === "AICALL191" ? `/dashboard/report?code=${flow.code}` : `/dashboard/report/${item.uid}`} className="w-full">
-                            <Button
-                                className="bg-[#e2e8f0] dark:bg-gray-700 hover:bg-[#cbd5e1] dark:hover:bg-gray-600 text-[#64748b] dark:text-gray-300 font-semibold h-11 px-8 rounded-lg text-sm transition-all border-none w-full"
-                            >
-                                {flow.code === "AICALL191" ? "Reservations" : "Call History"}
-                            </Button>
-                        </Link>
+                        <Button
+                            onClick={() => handleReportsClick(item.uid, flow.name, flow.code)}
+                            className="bg-[#e2e8f0] dark:bg-gray-700 hover:bg-[#cbd5e1] dark:hover:bg-gray-600 text-[#64748b] dark:text-gray-300 font-semibold h-11 px-8 rounded-lg text-sm transition-all border-none w-full"
+                        >
+                            {flow.code === "AICALL191" ? "Reservations" : "Reports"}
+                        </Button>
                     </div>
                 </div>
             </div>
@@ -172,11 +214,11 @@ export function PhoneCallFlowsContent() {
             <div className="max-w-7xl mx-auto space-y-12">
                 <div className="flex flex-row justify-between">
                     <div className="flex flex-col gap-1">
-                        <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100 tracking-tight">AI Call Builder</h1>
+                        <h1 className="text-lg font-bold tracking-tight gradient-text">AI Call Builder</h1>
                         <p className="text-gray-500 dark:text-gray-400 font-medium">Enable and manage your AI-powered call flows.</p>
                     </div>
                     <div>
-                        <Link href="/dashboard/ai-call-flow-options">
+                        <Link href="/dashboard/ai-call-flow-options" onClick={handleFlowOptionsClick}>
                             <button
                                 className="bg-white border border-black dark:bg-gray-100 text-black dark:text-gray-900 text-xs transition-all duration-200 gap-2 flex justify-center items-center rounded-md px-2 py-2 text-base"
                             >
@@ -212,6 +254,34 @@ export function PhoneCallFlowsContent() {
                 </div>
             </div>
 
+            {/* Unauthorized / Access Restricted Dialog */}
+            <AlertDialog open={isUnauthorizedOpen} onOpenChange={setIsUnauthorizedOpen}>
+                <AlertDialogContent className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 max-w-md rounded-2xl p-6">
+                    <AlertDialogHeader className="flex flex-col items-center text-center">
+                        <div className="w-14 h-14 rounded-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 flex items-center justify-center text-amber-600 dark:text-amber-400 mb-3">
+                            <ShieldAlert className="w-7 h-7" />
+                        </div>
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 mb-1">
+                            Role: VOIP_USER
+                        </span>
+                        <AlertDialogTitle className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                            {unauthorizedTitle}
+                        </AlertDialogTitle>
+                        <AlertDialogDescription className="text-sm text-gray-500 dark:text-gray-400 mt-2 leading-relaxed">
+                            {unauthorizedDescription}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter className="sm:justify-center mt-5">
+                        <AlertDialogAction
+                            onClick={() => setIsUnauthorizedOpen(false)}
+                            className="bg-[#0f172a] dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-[#1e293b] dark:hover:bg-gray-200 font-semibold px-8 py-2 rounded-lg text-sm transition-all"
+                        >
+                            Understood
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
             <AlertDialog open={showResultDialog} onOpenChange={setShowResultDialog}>
                 <AlertDialogContent className="dark:bg-gray-900 dark:border-gray-800">
                     <AlertDialogHeader>
@@ -239,7 +309,7 @@ export function PhoneCallFlowsContent() {
                             <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex-shrink-0">
                                 <div className="flex flex-col sm:flex-row gap-6 items-center sm:items-start text-center sm:text-left">
                                     {/* Image left from Name */}
-                                    <div className="w-24 h-32 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex-shrink-0 bg-gray-50 dark:bg-gray-900">
+                                    <div className="w-24 h-32 border border-indigo-100 dark:border-white/10 rounded-xl shadow-md shadow-indigo-500/10 overflow-hidden flex-shrink-0 bg-gray-50 dark:bg-gray-900">
                                         <img src={selectedFlow.picture} alt={selectedFlow.name} className="w-full h-full object-cover" />
                                     </div>
                                     <div className="space-y-2 flex-grow">
@@ -248,10 +318,10 @@ export function PhoneCallFlowsContent() {
                                         </DialogTitle>
                                         <div className="flex flex-row flex-wrap gap-2 justify-center sm:justify-start">
                                             <div className="flex items-center text-xs text-gray-500 font-medium capitalize">
-                                                <span className="bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded text-gray-600 dark:text-gray-300">{selectedFlow.call_direction} Call</span>
+                                                <span className="bg-indigo-50 dark:bg-indigo-500/15 px-2 py-0.5 rounded-full text-indigo-700 dark:text-indigo-200 font-medium">{selectedFlow.call_direction} Call</span>
                                             </div>
                                             <div className="flex items-center text-xs text-gray-500 font-medium uppercase tracking-wider">
-                                                <span className="bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded text-gray-600 dark:text-gray-300">{selectedFlow.flow_category.replace(/_/g, ' ')}</span>
+                                                <span className="bg-indigo-50 dark:bg-indigo-500/15 px-2 py-0.5 rounded-full text-indigo-700 dark:text-indigo-200 font-medium">{selectedFlow.flow_category.replace(/_/g, ' ')}</span>
                                             </div>
                                         </div>
                                         <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed mt-2">
@@ -274,14 +344,18 @@ export function PhoneCallFlowsContent() {
                                             <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-base">How It Works</h3>
                                         </div>
                                         <ul className="space-y-3">
-                                            {selectedFlow.how_works.map((step, index) => (
-                                                <li key={index} className="flex gap-3 text-sm text-gray-600 dark:text-gray-400 group">
-                                                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-600/10 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 flex items-center justify-center text-[10px] font-semibold mt-0.5 border border-blue-600/20 group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                                                        {index + 1}
-                                                    </span>
-                                                    <span className="group-hover:text-gray-900 dark:group-hover:text-gray-200 transition-colors leading-normal text-left">{step}</span>
-                                                </li>
-                                            ))}
+                                            {(selectedFlow.how_works || []).length === 0 ? (
+                                                <li className="text-xs text-gray-500 italic">No specific steps defined.</li>
+                                            ) : (
+                                                (selectedFlow.how_works || []).map((step, index) => (
+                                                    <li key={index} className="flex gap-3 text-sm text-gray-600 dark:text-gray-400 group">
+                                                        <span className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-600/10 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 flex items-center justify-center text-[10px] font-semibold mt-0.5 border border-blue-600/20 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                                                            {index + 1}
+                                                        </span>
+                                                        <span className="group-hover:text-gray-900 dark:group-hover:text-gray-200 transition-colors leading-normal text-left">{step}</span>
+                                                    </li>
+                                                ))
+                                            )}
                                         </ul>
                                     </div>
 
@@ -294,14 +368,18 @@ export function PhoneCallFlowsContent() {
                                             <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-base">Required Resources</h3>
                                         </div>
                                         <ul className="space-y-3">
-                                            {selectedFlow.required_resources.map((resource, index) => (
-                                                <li key={index} className="flex gap-3 text-sm text-gray-600 dark:text-gray-400 group">
-                                                    <div className="mt-1 flex-shrink-0">
-                                                        <div className="w-1.5 h-1.5 rounded-full bg-green-500/60 group-hover:bg-green-500 transition-colors" />
-                                                    </div>
-                                                    <span className="group-hover:text-gray-900 dark:group-hover:text-gray-200 transition-colors leading-normal text-left">{resource}</span>
-                                                </li>
-                                            ))}
+                                            {(selectedFlow.required_resources || []).length === 0 ? (
+                                                <li className="text-xs text-gray-500 italic">No additional resources required.</li>
+                                            ) : (
+                                                (selectedFlow.required_resources || []).map((resource, index) => (
+                                                    <li key={index} className="flex gap-3 text-sm text-gray-600 dark:text-gray-400 group">
+                                                        <div className="mt-1 flex-shrink-0">
+                                                            <div className="w-1.5 h-1.5 rounded-full bg-gradient-to-r from-blue-400 to-indigo-500 group-hover:bg-green-500 transition-colors" />
+                                                        </div>
+                                                        <span className="group-hover:text-gray-900 dark:group-hover:text-gray-200 transition-colors leading-normal text-left">{resource}</span>
+                                                    </li>
+                                                ))
+                                            )}
                                         </ul>
                                     </div>
                                 </div>
@@ -314,10 +392,10 @@ export function PhoneCallFlowsContent() {
                                 </div>
                                 <div className="flex justify-center sm:justify-start">
                                     <div className="flex items-center gap-4">
-                                        <div className="w-14 h-14 border border-gray-200 dark:border-gray-700 rounded-xl p-2.5 flex items-center justify-center bg-white dark:bg-gray-800 shadow-sm hover:shadow-md transition-shadow">
+                                        <div className="w-14 h-14 border border-indigo-100 dark:border-white/10 rounded-2xl p-2.5 flex items-center justify-center bg-white/80 dark:bg-white/5 shadow-md shadow-indigo-500/10 hover:shadow-lg hover:-translate-y-0.5 transition-all">
                                             <img src="/images/JobAdder.jpg" alt="JobAdder" className="w-full h-full object-contain" />
                                         </div>
-                                        <div className="w-14 h-14 border border-gray-200 dark:border-gray-700 rounded-xl p-2.5 flex items-center justify-center bg-white dark:bg-gray-800 shadow-sm hover:shadow-md transition-shadow">
+                                        <div className="w-14 h-14 border border-indigo-100 dark:border-white/10 rounded-2xl p-2.5 flex items-center justify-center bg-white/80 dark:bg-white/5 shadow-md shadow-indigo-500/10 hover:shadow-lg hover:-translate-y-0.5 transition-all">
                                             <img src="/images/Bullhornconnector.jpg" alt="Bullhorn" className="w-full h-full object-contain" />
                                         </div>
                                     </div>

@@ -152,7 +152,7 @@ export function SupportTicketsContent() {
     };
 
     return (
-        <div className="flex-1 overflow-y-auto bg-[#F9FAFB] dark:bg-gray-950">
+        <div className="flex-1 overflow-y-auto bg-transparent">
             <div className="max-w-[1100px] mx-auto py-10 px-4 sm:px-6 lg:px-8">
                 {/* Back Link */}
                 {/* <button
@@ -165,19 +165,28 @@ export function SupportTicketsContent() {
 
                 {/* Header */}
                 <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 mb-10 text-center sm:text-left">
-                    <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-blue-800 flex-shrink-0">
+                    <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600 shadow-violet-500/40 shadow-lg border dark: flex-shrink-0 text-white transition-transform duration-300 hover:scale-110 hover:-rotate-6">
                         <MessageSquare size={24} />
                     </div>
                     <div>
-                        <h1 className="text-xl sm:text-2xl font-semibold text-gray-900 dark:text-white">Support Tickets</h1>
+                        <h1 className="text-xl sm:text-2xl font-semibold gradient-text pb-1">Support Tickets</h1>
                         <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400 mt-1">View your ticket history or submit a new request</p>
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+                {/* <div className="grid grid-cols-1 lg:grid-cols-3 gap-10"> */}
                     {/* Ticket History */}
                     <div className="lg:col-span-2 space-y-6">
-                        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">Ticket History</h2>
+                        <div className="flex items-center justify-between">
+                            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Ticket History</h2>
+                            <Button
+                                onClick={() => router.push('/dashboard/help/support-tickets/create')}
+                                className="bg-gradient-to-r from-blue-600 to-violet-500 text-white shadow-md shadow-violet-500/25 hover:from-blue-700 hover:to-violet-600 hover:-translate-y-0.5 text-white px-4 sm:px-8 lg:px-4 xl:px-6 py-6 rounded-2xl text-[13px] xl:text-sm font-bold transition-all hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2"
+                            >
+                                <Send size={16} />
+                                Write a Support Ticket
+                            </Button>
+                        </div>
                         <div className="space-y-4">
                             {isLoading ? (
                                 <div className="flex flex-col items-center justify-center py-20 text-gray-500">
@@ -190,7 +199,7 @@ export function SupportTicketsContent() {
                                     return (
                                         <Card
                                             key={ticket.id}
-                                            className="p-6 border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow dark:bg-gray-900/50 cursor-pointer"
+                                            className="p-6 border-gray-100 dark:border-gray-800 shadow-sm shadow-violet-500/10 hover:shadow-md transition-shadow dark:bg-gray-900/50 cursor-pointer"
                                             onClick={() => handleTicketClick(ticket.uid)}
                                         >
                                             <div className="flex flex-col sm:flex-row items-start justify-between gap-3 mb-4">
@@ -227,7 +236,7 @@ export function SupportTicketsContent() {
                                     <Button
                                         onClick={() => router.push('/dashboard/help/support-tickets/create')}
                                         variant="outline"
-                                        className="rounded-xl font-bold"
+                                        className="rounded-2xl font-bold"
                                     >
                                         Write Your First Ticket
                                     </Button>
@@ -237,10 +246,10 @@ export function SupportTicketsContent() {
                     </div>
 
                     {/* Sidebar Action */}
-                    <div className="lg:col-span-1 space-y-6">
+                    {/* <div className="lg:col-span-1 space-y-6">
                         <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">Need More Help?</h2>
                         <Card className="bg-[#EBF2FF] dark:bg-blue-900/10 border-[#D6E6FF] dark:border-blue-800/30 p-6 sm:p-8 lg:p-6 xl:p-8 w-full text-center flex flex-col items-center">
-                            <div className="w-14 h-14 rounded-full bg-blue-100/50 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400 mb-6 border border-blue-200/50 dark:border-blue-700/30">
+                            <div className="w-14 h-14 rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 shadow-violet-500/40 shadow-lg flex items-center justify-center mb-6 border dark: text-white transition-transform duration-300 hover:scale-110 hover:-rotate-6">
                                 <Send size={24} className="ml-0.5" />
                             </div>
                             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Write a New Ticket</h3>
@@ -249,14 +258,14 @@ export function SupportTicketsContent() {
                             </p>
                             <Button
                                 onClick={() => router.push('/dashboard/help/support-tickets/create')}
-                                className="w-full bg-[#2563EB] hover:bg-[#1D4ED8] text-white px-4 sm:px-8 lg:px-4 xl:px-6 py-6 rounded-xl text-[13px] xl:text-sm font-bold transition-all hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2"
+                                className="w-full bg-gradient-to-r from-blue-600 to-violet-500 text-white shadow-md shadow-violet-500/25 hover:from-blue-700 hover:to-violet-600 hover:-translate-y-0.5 text-white px-4 sm:px-8 lg:px-4 xl:px-6 py-6 rounded-2xl text-[13px] xl:text-sm font-bold transition-all hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2"
                             >
                                 <Send size={16} />
                                 Write a Support Ticket
                             </Button>
                         </Card>
-                    </div>
-                </div>
+                    </div> */}
+                {/* </div> */}
             </div>
 
             {/* Ticket Details Modal */}
@@ -325,9 +334,9 @@ export function SupportTicketsContent() {
                                         {selectedTicket.attachments.map((attachment) => {
                                             const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(attachment.file);
                                             return (
-                                                <div key={attachment.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3.5 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl hover:border-blue-100 dark:hover:border-blue-900/30 transition-colors group gap-3">
+                                                <div key={attachment.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3.5 bg-white/80 backdrop-blur-xl dark:bg-white/5 border border-gray-100 dark:border-gray-800 rounded-2xl hover:border-blue-100 dark:hover:border-blue-900/30 transition-colors group gap-3 card-lift">
                                                     <div className="flex items-center gap-3 w-full sm:w-auto">
-                                                        <div className="w-10 h-10 rounded-xl bg-gray-50 dark:bg-gray-800 flex items-center justify-center text-gray-400 group-hover:bg-blue-50 dark:group-hover:bg-blue-900/20 group-hover:text-blue-500 transition-colors shrink-0">
+                                                        <div className="w-10 h-10 rounded-2xl bg-gray-50 flex items-center justify-center text-gray-400 group-hover:bg-gradient-to-br from-violet-500 to-indigo-600 shadow-violet-500/40 shadow-lg dark:group-hover:bg-blue-900/20 group-hover: transition-colors shrink-0 text-white transition-transform duration-300 hover:scale-110 hover:-rotate-6">
                                                             {isImage ? <ImageIcon size={18} /> : <File size={18} />}
                                                         </div>
                                                         <div className="flex-1 min-w-0">
@@ -345,7 +354,7 @@ export function SupportTicketsContent() {
                                                         variant="ghost"
                                                         size="sm"
                                                         disabled={isDownloading === attachment.uid}
-                                                        className="h-9 w-full sm:w-9 rounded-xl text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all shrink-0 border border-gray-100 dark:border-gray-800 sm:border-none"
+                                                        className="h-9 w-full sm:w-9 rounded-2xl text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all shrink-0 border border-gray-100 dark:border-gray-800 sm:border-none"
                                                     >
                                                         {isDownloading === attachment.uid ? (
                                                             <Loader2 size={16} className="animate-spin mr-2 sm:mr-0" />

@@ -96,11 +96,11 @@ export function PaymentPage({ planUid }: PaymentPageProps) {
         <div className="flex-1 overflow-y-auto bg-gray-50/50 py-12 px-4 shadow-inner">
             <div className="max-w-xl mx-auto">
                 <div className="mb-8">
-                    <h1 className="text-3xl font-bold text-[#1e293b] mb-2">Payment Details</h1>
+                    <h1 className="text-3xl font-bold text-[#1e293b] mb-2 gradient-text pb-1">Payment Details</h1>
                     <p className="text-gray-500">Enter your payment information to complete the purchase.</p>
                 </div>
 
-                <Card className="p-8 shadow-sm border border-gray-100 rounded-2xl bg-white">
+                <Card className="p-8 shadow-sm shadow-violet-500/10 border border-gray-100 rounded-2xl bg-white">
                     <form className="space-y-6" onSubmit={handlePurchase}>
                         <div className="space-y-2">
                             <Label htmlFor="fullName" className="text-sm font-semibold text-[#1e293b]">
@@ -109,7 +109,7 @@ export function PaymentPage({ planUid }: PaymentPageProps) {
                             <Input
                                 id="fullName"
                                 placeholder="Enter your full name"
-                                className="h-12 border-gray-200 focus:ring-primary rounded-xl"
+                                className="h-12 border-gray-200 focus:ring-primary rounded-2xl"
                                 value={formData.fullName}
                                 onChange={handleInputChange}
                                 required
@@ -124,7 +124,7 @@ export function PaymentPage({ planUid }: PaymentPageProps) {
                                 id="email"
                                 type="email"
                                 placeholder="Enter your email"
-                                className="h-12 border-gray-200 focus:ring-primary rounded-xl"
+                                className="h-12 border-gray-200 focus:ring-primary rounded-2xl"
                                 value={formData.email}
                                 onChange={handleInputChange}
                                 required
@@ -138,7 +138,7 @@ export function PaymentPage({ planUid }: PaymentPageProps) {
                             <Input
                                 id="cardNumber"
                                 placeholder="0000 0000 0000 0000"
-                                className="h-12 border-gray-200 rounded-xl"
+                                className="h-12 border-gray-200 rounded-2xl"
                                 value={formData.cardNumber}
                                 onChange={handleInputChange}
                                 required
@@ -153,7 +153,7 @@ export function PaymentPage({ planUid }: PaymentPageProps) {
                                 <Input
                                     id="expiry"
                                     placeholder="MM/YY"
-                                    className="h-12 border-gray-200 rounded-xl"
+                                    className="h-12 border-gray-200 rounded-2xl"
                                     value={formData.expiry}
                                     onChange={handleInputChange}
                                     required
@@ -166,7 +166,7 @@ export function PaymentPage({ planUid }: PaymentPageProps) {
                                 <Input
                                     id="cvv"
                                     placeholder="CVV"
-                                    className="h-12 border-gray-200 rounded-xl"
+                                    className="h-12 border-gray-200 rounded-2xl"
                                     value={formData.cvv}
                                     onChange={handleInputChange}
                                     required
@@ -181,7 +181,7 @@ export function PaymentPage({ planUid }: PaymentPageProps) {
                             <Input
                                 id="billingAddress"
                                 placeholder="Enter your billing address"
-                                className="h-12 border-gray-200 rounded-xl"
+                                className="h-12 border-gray-200 rounded-2xl"
                                 value={formData.billingAddress}
                                 onChange={handleInputChange}
                                 required
@@ -191,7 +191,7 @@ export function PaymentPage({ planUid }: PaymentPageProps) {
                         <div className="flex flex-col sm:flex-row gap-4 pt-4">
                             <Button
                                 type="submit"
-                                className="flex-1 h-12 bg-[#0f172a] hover:bg-[#1e293b] text-white font-bold text-base rounded-xl transition-all shadow-md"
+                                className="flex-1 h-12 bg-[#0f172a] hover:bg-[#1e293b] text-white font-bold text-base rounded-2xl transition-all shadow-md"
                                 disabled={loading}
                             >
                                 {loading ? "Processing..." : "Purchase Now"}
@@ -199,7 +199,7 @@ export function PaymentPage({ planUid }: PaymentPageProps) {
                             <Button
                                 type="button"
                                 variant="outline"
-                                className="flex-1 h-12 border-2 text-gray-600 font-bold text-base rounded-xl transition-all"
+                                className="flex-1 h-12 border-2 text-gray-600 font-bold text-base rounded-2xl transition-all"
                                 onClick={() => router.back()}
                             >
                                 Back

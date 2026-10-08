@@ -75,6 +75,8 @@ export function PhoneNumberBuyForm() {
     const [selectedPmForTopUp, setSelectedPmForTopUp] = useState<any>(null);
     const [isPmSelectorOpen, setIsPmSelectorOpen] = useState(false);
     const [isAddPaymentOpen, setIsAddPaymentOpen] = useState(false);
+    const [addPaymentError, setAddPaymentError] = useState<string | null>(null);
+    const addPaymentErrorRef = useRef<HTMLDivElement>(null);
 
     // Add Payment Method form state
     const [cardholderName, setCardholderName] = useState("");
@@ -140,7 +142,7 @@ export function PhoneNumberBuyForm() {
 
     useEffect(() => {
         const initStripe = async () => {
-            const stripeInstance = await loadStripe('pk_test_51T28pm7kECw44sgCk3RxtMKst01YwUY02L1R93SaiJVPHloYcnWAar0NytN5TcduerTeWbS1yRa0hJehyB7N2JSC00WWO8y9aa');
+             const stripeInstance = await loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '');
             setStripe(stripeInstance);
         };
         initStripe();
@@ -255,24 +257,31 @@ export function PhoneNumberBuyForm() {
         }
     };
 
+    useEffect(() => {
+        if (addPaymentError && addPaymentErrorRef.current) {
+            addPaymentErrorRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    }, [addPaymentError]);
+
     const handleAddPaymentMethod = async () => {
         if (!stripe || !elements || !cardNumberRef.current) return;
+        setAddPaymentError(null);
 
         if (!isCardComplete) {
-            setErrorDetail("Please enter your card information");
+            setAddPaymentError("Please enter your card information");
             return;
         }
 
         if (!cardholderName.trim()) {
-            setErrorDetail("Please enter the name on card");
+            setAddPaymentError("Please enter the name on card");
             return;
         }
         if (!billingCountry) {
-            setErrorDetail("Please select a country");
+            setAddPaymentError("Please select a country");
             return;
         }
         if (!addressLine1.trim()) {
-            setErrorDetail("Please enter the address line 1");
+            setAddPaymentError("Please enter the address line 1");
             return;
         }
 
@@ -295,7 +304,7 @@ export function PhoneNumberBuyForm() {
             });
 
             if (error) {
-                sonnerToast.error(error.message);
+                setAddPaymentError(error.message || "Failed to create payment method");
                 setIsSubmitting(false);
                 return;
             }
@@ -319,11 +328,12 @@ export function PhoneNumberBuyForm() {
                 fetchPaymentMethods();
             } else {
                 const errData = await response.json();
-                setErrorDetail(errData.details || errData.detail || "Failed to add payment method");
+                const errMsg = errData.error?.message || errData.message || errData.details || errData.detail || "Failed to add payment method";
+                setAddPaymentError(errMsg);
             }
         } catch (err) {
             console.error(err);
-            setErrorDetail("An unexpected error occurred");
+            setAddPaymentError("An unexpected error occurred");
         } finally {
             setIsSubmitting(false);
         }
@@ -478,7 +488,7 @@ export function PhoneNumberBuyForm() {
                 {/* Header */}
                 <div className="space-y-4">
                     <div>
-                        <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100 tracking-tight">Buy Phone Number</h1>
+                        <h1 className="text-lg font-bold tracking-tight gradient-text">Buy Phone Number</h1>
                         <p className="text-gray-500 dark:text-gray-400 mt-2">Select country and payment method to purchase</p>
                     </div>
                 </div>
@@ -490,7 +500,9 @@ export function PhoneNumberBuyForm() {
                     </CardHeader> */}
 
                     <CardContent className="pt-8 p-6">
-                        {organization?.id === 8 || organization?.country_iso_code === "US" ? (
+                        {/* {organization?.id === 8 || organization?.country_iso_code === "US" 
+                        ? 
+                        ( */}
                             <form onSubmit={handleSubmitPurchase} className="space-y-6">
                                 {/* Country Selection HIDDEN for US */}
 
@@ -584,40 +596,41 @@ export function PhoneNumberBuyForm() {
                                     <Button
                                         type="submit"
                                         disabled={isLoading || !selectedPmForTopUp || !selectedCountry}
-                                        className="cursor-pointer bg-black dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-900 dark:hover:bg-gray-200 font-bold px-6 py-2 rounded-xl flex items-center justify-center gap-2 transition-all duration-200 disabled:opacity-50"
+                                        className="cursor-pointer bg-gradient-to-r from-blue-600 to-violet-500 shadow-md shadow-blue-600/30 hover:brightness-110 hover:-translate-y-0.5 text-white dark: font-bold px-6 py-2 rounded-xl flex items-center justify-center gap-2 transition-all duration-200 disabled:opacity-50"
                                     >
                                         {isLoading ? "Processing..." : "Buy AI Number"}
                                     </Button>
                                 </div>
                             </form>
-                        ) : organization && (
-                            <div className="flex flex-col items-center justify-center py-12 px-6 text-center space-y-6">
-                                <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100 max-w-2xl">
-                                    Your Business address and Identification is being verified right now. Please stay with us, we will let you know once it is verified.
-                                </h2>
-                                <div className="space-y-2">
-                                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                                        You can still check{" "}
-                                        <button
-                                            type="button"
-                                            onClick={() => router.push("/dashboard/help")}
-                                            className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
-                                        >
-                                            Help
-                                        </button>{" "}
-                                        section to find useful information about phone numbers. Also you can send{" "}
-                                        <button
-                                            type="button"
-                                            onClick={() => router.push("/dashboard/support")}
-                                            className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
-                                        >
-                                            Customer Support ticket
-                                        </button>{" "}
-                                        if you think it's necessary.
-                                    </p>
-                                </div>
-                            </div>
-                        )}
+                        {/* )  */}
+                        {/* // : organization && (
+                        //     <div className="flex flex-col items-center justify-center py-12 px-6 text-center space-y-6">
+                        //         <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100 max-w-2xl">
+                        //             Your Business address and Identification is being verified right now. Please stay with us, we will let you know once it is verified.
+                        //         </h2>
+                        //         <div className="space-y-2">
+                        //             <p className="text-sm text-gray-500 dark:text-gray-400">
+                        //                 You can still check{" "}
+                        //                 <button
+                        //                     type="button"
+                        //                     onClick={() => router.push("/dashboard/help")}
+                        //                     className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
+                        //                 >
+                        //                     Help
+                        //                 </button>{" "}
+                        //                 section to find useful information about phone numbers. Also you can send{" "}
+                        //                 <button
+                        //                     type="button"
+                        //                     onClick={() => router.push("/dashboard/support")}
+                        //                     className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
+                        //                 >
+                        //                     Customer Support ticket
+                        //                 </button>{" "}
+                        //                 if you think it's necessary.
+                        //             </p>
+                        //         </div>
+                        //     </div>
+                        // )} */}
                     </CardContent>
                 </Card>
             </div>
@@ -626,6 +639,7 @@ export function PhoneNumberBuyForm() {
             <Dialog open={isAddPaymentOpen} onOpenChange={(open) => {
                 setIsAddPaymentOpen(open);
                 if (!open) {
+                    setAddPaymentError(null);
                     if (cardNumberRef.current) cardNumberRef.current.unmount();
                     if (cardExpiryRef.current) cardExpiryRef.current.unmount();
                     if (cardCvcRef.current) cardCvcRef.current.unmount();
@@ -645,6 +659,21 @@ export function PhoneNumberBuyForm() {
                             Add your credit card details below. This card will be saved to your account and can be removed at any time.
                         </p>
                     </DialogHeader>
+
+                    {addPaymentError && (
+                        <div
+                            ref={addPaymentErrorRef}
+                            className="p-4 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800/50 flex items-start gap-3 animate-in fade-in slide-in-from-top-1 duration-200"
+                        >
+                            <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+                            <div className="flex-1 min-w-0">
+                                <h4 className="text-[14px] font-bold text-red-600 dark:text-red-400">Error</h4>
+                                <p className="text-[13px] text-red-500 dark:text-red-400/90 font-medium mt-0.5 leading-relaxed">
+                                    {addPaymentError}
+                                </p>
+                            </div>
+                        </div>
+                    )}
 
                     <div className="space-y-6">
                         {/* Card Information */}
@@ -678,7 +707,7 @@ export function PhoneNumberBuyForm() {
                                 value={cardholderName}
                                 onChange={(e) => setCardholderName(e.target.value)}
                                 placeholder="e.g. John Doe"
-                                className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl py-3 px-4 text-[15px] font-medium text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-700 transition-shadow placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                                className="w-full bg-white/70 dark:bg-white/5 backdrop-blur border border-indigo-100 dark:border-white/10 hover:border-indigo-300 rounded-xl transition-all py-3 px-4 text-[15px] font-medium text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-700 transition-shadow placeholder:text-gray-400 dark:placeholder:text-gray-500"
                             />
                         </div>
 
@@ -691,7 +720,7 @@ export function PhoneNumberBuyForm() {
                                 <div className="relative">
                                     <div
                                         onClick={() => setIsCountryOpen(!isCountryOpen)}
-                                        className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl py-3 px-4 text-[15px] font-medium text-gray-900 dark:text-gray-100 flex items-center justify-between cursor-pointer hover:border-gray-300 dark:hover:border-gray-700 transition-colors"
+                                        className="w-full bg-white/70 dark:bg-white/5 backdrop-blur border border-indigo-100 dark:border-white/10 hover:border-indigo-300 rounded-xl transition-all py-3 px-4 text-[15px] font-medium text-gray-900 dark:text-gray-100 flex items-center justify-between cursor-pointer hover:border-gray-300 dark:hover:border-gray-700 transition-colors"
                                     >
                                         <span className={billingCountry ? "text-gray-900 dark:text-gray-100" : "text-gray-400 dark:text-gray-500"}>
                                             {billingCountry ? (countriesData.find((c: any) => c.country_code === billingCountry)?.country || billingCountry) : "Country"} <span className="text-red-500">*</span>
@@ -710,7 +739,7 @@ export function PhoneNumberBuyForm() {
                                                         placeholder="Search country..."
                                                         value={modalCountrySearch}
                                                         onChange={(e) => setModalCountrySearch(e.target.value)}
-                                                        className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl py-2.5 pl-10 pr-4 text-[15px] font-medium text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-700 transition-shadow"
+                                                        className="w-full bg-white/70 dark:bg-white/5 backdrop-blur border border-indigo-100 dark:border-white/10 hover:border-indigo-300 rounded-xl transition-all py-2.5 pl-10 pr-4 text-[15px] font-medium text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-700 transition-shadow"
                                                     />
                                                 </div>
                                             </div>
@@ -743,14 +772,14 @@ export function PhoneNumberBuyForm() {
                                     value={addressLine1}
                                     onChange={(e) => setAddressLine1(e.target.value)}
                                     placeholder="Address line 1 *"
-                                    className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl py-3 px-4 text-[15px] font-medium text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-700 transition-shadow placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                                    className="w-full bg-white/70 dark:bg-white/5 backdrop-blur border border-indigo-100 dark:border-white/10 hover:border-indigo-300 rounded-xl transition-all py-3 px-4 text-[15px] font-medium text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-700 transition-shadow placeholder:text-gray-400 dark:placeholder:text-gray-500"
                                 />
                                 <input
                                     type="text"
                                     value={addressLine2}
                                     onChange={(e) => setAddressLine2(e.target.value)}
                                     placeholder="Address line 2"
-                                    className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl py-3 px-4 text-[15px] font-medium text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-700 transition-shadow placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                                    className="w-full bg-white/70 dark:bg-white/5 backdrop-blur border border-indigo-100 dark:border-white/10 hover:border-indigo-300 rounded-xl transition-all py-3 px-4 text-[15px] font-medium text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-700 transition-shadow placeholder:text-gray-400 dark:placeholder:text-gray-500"
                                 />
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <input
@@ -758,14 +787,14 @@ export function PhoneNumberBuyForm() {
                                         value={city}
                                         onChange={(e) => setCity(e.target.value)}
                                         placeholder="City"
-                                        className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl py-3 px-4 text-[15px] font-medium text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-700 transition-shadow placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                                        className="w-full bg-white/70 dark:bg-white/5 backdrop-blur border border-indigo-100 dark:border-white/10 hover:border-indigo-300 rounded-xl transition-all py-3 px-4 text-[15px] font-medium text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-700 transition-shadow placeholder:text-gray-400 dark:placeholder:text-gray-500"
                                     />
                                     <input
                                         type="text"
                                         value={postalCode}
                                         onChange={(e) => setPostalCode(e.target.value)}
                                         placeholder="Postal code"
-                                        className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl py-3 px-4 text-[15px] font-medium text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-700 transition-shadow placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                                        className="w-full bg-white/70 dark:bg-white/5 backdrop-blur border border-indigo-100 dark:border-white/10 hover:border-indigo-300 rounded-xl transition-all py-3 px-4 text-[15px] font-medium text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-700 transition-shadow placeholder:text-gray-400 dark:placeholder:text-gray-500"
                                     />
                                 </div>
                                 <input
@@ -773,7 +802,7 @@ export function PhoneNumberBuyForm() {
                                     value={stateRegion}
                                     onChange={(e) => setStateRegion(e.target.value)}
                                     placeholder="State, county, province, or region"
-                                    className="w-full bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl py-3 px-4 text-[15px] font-medium text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-700 transition-shadow placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                                    className="w-full bg-white/70 dark:bg-white/5 backdrop-blur border border-indigo-100 dark:border-white/10 hover:border-indigo-300 rounded-xl transition-all py-3 px-4 text-[15px] font-medium text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-700 transition-shadow placeholder:text-gray-400 dark:placeholder:text-gray-500"
                                 />
                             </div>
                         </div>
@@ -798,7 +827,7 @@ export function PhoneNumberBuyForm() {
                     <div className="flex flex-col sm:flex-row justify-end gap-3 pt-2">
                         <Button
                             onClick={() => setIsAddPaymentOpen(false)}
-                            className="w-full sm:w-auto bg-gray-100 hover:bg-gray-200 text-gray-900 font-bold px-6 py-2.5 rounded-xl border-none shadow-none text-[15px] transition-colors dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700 h-auto order-2 sm:order-1"
+                            className="w-full sm:w-auto bg-white/70 hover:bg-indigo-50 text-indigo-700 font-bold px-6 py-2.5 rounded-xl border border-indigo-100 shadow-none text-[15px] transition-colors dark:bg-white/5 dark:text-indigo-200 dark:border-white/10 dark:hover:bg-gray-700 h-auto order-2 sm:order-1"
                             disabled={isSubmitting}
                         >
                             Cancel
@@ -806,7 +835,7 @@ export function PhoneNumberBuyForm() {
                         <Button
                             onClick={handleAddPaymentMethod}
                             disabled={isSubmitting}
-                            className="w-full sm:w-auto bg-[#1a1c1e] hover:bg-black text-white px-6 py-2.5 rounded-xl text-[15px] font-bold transition-colors dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white h-auto flex items-center justify-center gap-2 order-1 sm:order-2"
+                            className="w-full sm:w-auto gradient-bg text-white px-6 py-2.5 rounded-xl text-[15px] font-bold shadow-lg shadow-indigo-500/30 hover:shadow-xl hover:-translate-y-0.5 transition-all h-auto flex items-center justify-center gap-2 order-1 sm:order-2"
                         >
                             {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
                             Add payment method
@@ -833,7 +862,7 @@ export function PhoneNumberBuyForm() {
                     <AlertDialogFooter className="pt-4">
                         <AlertDialogAction
                             onClick={() => setErrorDetail(null)}
-                            className="w-full bg-red-500 hover:bg-red-600 text-white px-6 py-2.5 rounded-xl text-sm font-bold transition-colors h-auto border-none"
+                            className="w-full bg-gradient-to-r from-rose-500 to-rose-600 hover:shadow-lg hover:shadow-rose-500/30 hover:-translate-y-0.5 text-white px-6 py-2.5 rounded-xl text-sm font-bold transition-all h-auto border-none"
                         >
                             Continue
                         </AlertDialogAction>

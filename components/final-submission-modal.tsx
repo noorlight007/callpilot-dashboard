@@ -144,7 +144,7 @@ export function FinalSubmissionModal({ open, onOpenChange, onBack, onSuccess }: 
     return (
         <>
             <Dialog open={open} onOpenChange={onOpenChange}>
-                <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+                <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto glass rounded-3xl bg-white/90 dark:bg-gray-950/90 animate-scale-in shadow-2xl shadow-indigo-500/20">
                     <LoaderOverlay isLoading={isLoading} />
                     {toast && (
                         <ToastNotification
@@ -156,15 +156,15 @@ export function FinalSubmissionModal({ open, onOpenChange, onBack, onSuccess }: 
                     )}
 
                     <DialogHeader>
-                        <DialogTitle className="text-2xl">Review & Submit</DialogTitle>
+                        <DialogTitle className="text-2xl font-extrabold gradient-text">Review & Submit</DialogTitle>
                         <DialogDescription>Verify all information before submission</DialogDescription>
                     </DialogHeader>
 
                     <div className="space-y-6">
                         {/* Bundle Info */}
                         <div>
-                            <h3 className="font-semibold text-lg text-foreground mb-3">Bundle Information</h3>
-                            <div className="p-4 bg-muted/50 rounded-lg border border-border space-y-2">
+                            <h3 className="font-bold text-lg gradient-text mb-3">Bundle Information</h3>
+                            <div className="p-5 rounded-2xl glass bg-gradient-to-br from-indigo-50/70 to-blue-50/50 dark:from-indigo-500/10 dark:to-blue-500/5 space-y-2 card-lift">
                                 <p>
                                     <span className="font-medium">Name:</span> {bundle.friendly_name}
                                 </p>
@@ -182,8 +182,8 @@ export function FinalSubmissionModal({ open, onOpenChange, onBack, onSuccess }: 
 
                         {/* End User Info */}
                         <div>
-                            <h3 className="font-semibold text-lg text-foreground mb-3">End User Information</h3>
-                            <div className="p-4 bg-muted/50 rounded-lg border border-border space-y-2">
+                            <h3 className="font-bold text-lg gradient-text mb-3">End User Information</h3>
+                            <div className="p-5 rounded-2xl glass bg-gradient-to-br from-indigo-50/70 to-blue-50/50 dark:from-indigo-500/10 dark:to-blue-500/5 space-y-2 card-lift">
                                 <p>
                                     <span className="font-medium">Friendly Name:</span> {endUser.friendly_name}
                                 </p>
@@ -204,8 +204,8 @@ export function FinalSubmissionModal({ open, onOpenChange, onBack, onSuccess }: 
 
                         {/* Address Info */}
                         <div>
-                            <h3 className="font-semibold text-lg text-foreground mb-3">Address Information</h3>
-                            <div className="p-4 bg-muted/50 rounded-lg border border-border space-y-2">
+                            <h3 className="font-bold text-lg gradient-text mb-3">Address Information</h3>
+                            <div className="p-5 rounded-2xl glass bg-gradient-to-br from-indigo-50/70 to-blue-50/50 dark:from-indigo-500/10 dark:to-blue-500/5 space-y-2 card-lift">
                                 <p>
                                     <span className="font-medium">Customer:</span> {address.customer_name}
                                 </p>
@@ -224,12 +224,12 @@ export function FinalSubmissionModal({ open, onOpenChange, onBack, onSuccess }: 
                             </div>
                         </div>
 
-                        <DialogFooter className="flex gap-3 pt-6 border-t border-border">
+                        <DialogFooter className="flex gap-3 pt-6 border-t border-primary/10">
                             <Button
                                 type="button"
                                 onClick={onBack}
                                 variant="outline"
-                                className="cursor-pointer flex-1 border-2 border-border bg-gradient-to-r from-primary/20 to-primary/20 dark:hover:text-white/50"
+                                className="cursor-pointer flex-1 rounded-xl border-2 border-primary/20 bg-white/60 dark:bg-white/5 hover:bg-primary/10 hover:border-primary/40"
                             >
                                 <ArrowLeft className="w-4 h-4 mr-2" />
                                 Back
@@ -237,7 +237,7 @@ export function FinalSubmissionModal({ open, onOpenChange, onBack, onSuccess }: 
                             <Button
                                 onClick={handleSubmit}
                                 disabled={isLoading}
-                                className="cursor-pointer flex-1 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"
+                                className="cursor-pointer flex-1 gradient-bg text-white font-semibold rounded-xl border-0 shadow-lg shadow-indigo-500/30 hover:shadow-xl hover:shadow-indigo-500/40 hover:-translate-y-0.5"
                             >
                                 {isLoading ? (
                                     <>
