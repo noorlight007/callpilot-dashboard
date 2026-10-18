@@ -34,6 +34,7 @@ export default function SignInPage() {
     const [showErrorDialog, setShowErrorDialog] = useState(false);
     const [showSuccessDialog, setShowSuccessDialog] = useState(false);
     const [step, setStep] = useState<"login" | "otp">("login");
+    const [challengeId, setChallengeId] = useState<string | null>(null);
 
     // Check for existing session on mount
     useEffect(() => {
@@ -103,6 +104,7 @@ export default function SignInPage() {
 
             if (response.ok) {
                 if (data.otp_required) {
+                    setChallengeId(data.challenge_id ?? null);
                     setShowSuccessDialog(true);
                 } else {
                     // Directly login if OTP is not required
@@ -141,7 +143,13 @@ export default function SignInPage() {
         setError(null);
 
         try {
-            const response = await authService.verifyOtp(otp);
+            if (!challengeId) {
+                setError("Your sign-in session expired. Please sign in again.");
+                setShowErrorDialog(true);
+                setStep("login");
+                return;
+            }
+            const response = await authService.verifyOtp(challengeId, otp);
             const data = await response.json();
 
             if (response.ok) {

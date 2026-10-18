@@ -10,11 +10,11 @@ export const authService = {
         return response;
     },
 
-    async verifyOtp(otp: string) {
+    async verifyOtp(challengeId: string, otp: string) {
         const response = await fetch(`${API_BASE_URL}/token/verify-otp`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ otp_code: otp }),
+            body: JSON.stringify({ challenge_id: challengeId, otp_code: otp }),
         });
         return response;
     },
@@ -71,7 +71,9 @@ export const cookieUtils = {
         const d = new Date();
         d.setTime(d.getTime() + days * 24 * 60 * 60 * 1000);
         const expires = "expires=" + d.toUTCString();
-        document.cookie = `${name}=${value};${expires};path=/`;
+        // SameSite limits cross-site sends; Secure is added whenever the page is on HTTPS.
+        const secure = location.protocol === "https:" ? ";Secure" : "";
+        document.cookie = `${name}=${value};${expires};path=/;SameSite=Lax${secure}`;
     },
 
     get(name: string) {

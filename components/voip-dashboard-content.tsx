@@ -1,8 +1,9 @@
 "use client"
 
-import React, { useState, useEffect, useRef, useCallback } from "react"
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { BASE_URL } from "@/lib/baseUrl"
+import { fetchTelnyxToken, loadTelnyxSdk } from "@/lib/voip-connection"
 import { cookieUtils } from "@/services/auth-service"
 import { profileService } from "@/services/profile-service"
 import {
@@ -21,8 +22,22 @@ import {
     Loader2,
     Voicemail,
     Radio,
-    Volume2
+    Volume2,
+    Building2,
+    Mail,
+    MapPin,
+    UserRound,
+    Users,
+    Search,
+    Plus,
+    RefreshCw,
+    UserPlus,
+    History,
+    Database,
+    ChevronLeft,
+    ChevronRight
 } from "lucide-react"
+import { CallerCardPanel } from "@/components/ops/caller-card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -34,11 +49,13 @@ interface CallItem {
     direction: "inbound" | "outbound";
     status: string;
     number: string;
+    contact_id?: number | null;
     contact_name?: string | null;
     started_at: string;
     duration: number;
     handled_by?: string | null;
     has_voicemail?: boolean;
+    caller_card?: any;
 }
 
 interface VoicemailItem {
@@ -66,13 +83,147 @@ interface VoiceConfig {
     transferUrl: string;
     voicemailsUrl: string;
     callsUrl: string;
+    callerLookupUrl: string;
     extensionUid?: string;
     callerId?: string;
+}
+
+interface JobAdderStatus {
+    statusId?: number | string;
+    name?: string;
+    active?: boolean;
+}
+
+interface JobAdderAddress {
+    street?: string[] | string;
+    city?: string;
+    state?: string;
+    postalCode?: string;
+    postcode?: string;
+    country?: string;
+}
+
+interface JobAdderUser {
+    userId?: number | string;
+    firstName?: string;
+    lastName?: string;
+    name?: string;
+    position?: string;
+    jobTitle?: string;
+    email?: string;
+    phone?: string;
+    mobile?: string;
+}
+
+interface JobAdderCompany {
+    companyId?: number | string;
+    name?: string;
+    status?: JobAdderStatus;
+}
+
+interface JobAdderPersonBase {
+    firstName?: string;
+    lastName?: string;
+    name?: string;
+    email?: string;
+    phone?: string;
+    mobile?: string;
+    mobileNormalized?: string;
+    unsubscribed?: boolean;
+    status?: JobAdderStatus;
+    createdBy?: JobAdderUser;
+    updatedBy?: JobAdderUser;
+    createdAt?: string;
+    updatedAt?: string;
+}
+
+interface JobAdderCandidate extends JobAdderPersonBase {
+    candidateId?: number | string;
+    seeking?: string;
+    address?: JobAdderAddress;
+}
+
+interface JobAdderContact extends JobAdderPersonBase {
+    contactId?: number | string;
+    company?: JobAdderCompany | null;
+}
+
+interface JobAdderCallerLookupResponse {
+    jobadder_connected?: boolean;
+    found?: boolean;
+    candidates?: JobAdderCandidate[];
+    contacts?: JobAdderContact[];
+    detail?: string;
+    error?: string;
+}
+
+interface CallerLookupState {
+    phone: string;
+    loading: boolean;
+    error: string | null;
+    data: JobAdderCallerLookupResponse | null;
+}
+
+interface CallerLookupOption {
+    key: string;
+    type: "candidate" | "contact";
+    index: number;
+    label: string;
+    record: JobAdderCandidate | JobAdderContact;
+}
+
+interface ContactItem {
+    id: number;
+    first_name?: string;
+    last_name?: string;
+    full_name?: string;
+    phone?: string | null;
+    email?: string;
+    company_name?: string;
+    source_name?: string | null;
+    origin?: string | null;
+    external_id?: string | null;
+    candidate_id?: string | null;
+    status?: string;
+}
+
+interface AtsPlatformItem {
+    id?: number;
+    uid: string;
+    is_connected?: boolean;
+    status?: string;
+    platform?: {
+        id?: number;
+        uid?: string;
+        name?: string;
+        slug?: string;
+        logo?: string | null;
+        status?: string;
+    } | number;
+    platform_name?: string;
+    name?: string;
+}
+
+interface ContactHistoryCall {
+    uid: string;
+    direction: "inbound" | "outbound";
+    number: string;
+    status: string;
+    started_at: string;
+    answered_at?: string | null;
+    ended_at?: string | null;
+    duration: number;
+    handled_by?: string | null;
+    has_voicemail?: boolean;
+    has_recording?: boolean;
+    hangup_cause?: string;
 }
 
 interface VoipDashboardContentProps {
     flowUid?: string;
 }
+
+const CONTACTS_PAGE_SIZE = 10
 
 export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
     const router = useRouter()
@@ -86,6 +237,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         transferUrl: `${VOICE_BASE}/voice/api/transfer/`,
         voicemailsUrl: `${VOICE_BASE}/voice/api/voicemails/`,
         callsUrl: `${VOICE_BASE}/voice/api/calls/`,
+        callerLookupUrl: `${VOICE_BASE}/voice/api/jobadder-caller-lookup/`,
         extensionUid: "",
         callerId: ""
     })
@@ -97,11 +249,14 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
     const [mainNumber, setMainNumber] = useState<string>("0131 367 1667")
 
     // UI and Connection State
-    const [status, setStatus] = useState<"online" | "offline" | "connecting">("offline")
+    const [status, setStatus] = useState<"online" | "offline" | "connecting">("connecting")
     const [statusDetail, setStatusDetail] = useState<string>("")
     const [soundBannerVisible, setSoundBannerVisible] = useState(false)
+    const [callError, setCallError] = useState<string | null>(null)
+    const [isDialing, setIsDialing] = useState(false)
     const [dialNumber, setDialNumber] = useState("")
     const [currentTab, setCurrentTab] = useState<"recent" | "missed" | "voicemail">("recent")
+    const [mobilePanel, setMobilePanel] = useState<"phone" | "contacts">("phone")
 
     // Active & Incoming Call States
     const [incomingCall, setIncomingCall] = useState<any | null>(null)
@@ -112,6 +267,8 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
     const [isAnswering, setIsAnswering] = useState(false)
     const [held, setHeld] = useState(false)
     const [muted, setMuted] = useState(false)
+    const [callerLookup, setCallerLookup] = useState<CallerLookupState | null>(null)
+    const [selectedLookupKey, setSelectedLookupKey] = useState("")
 
     // Transfer States
     const [showTransferPanel, setShowTransferPanel] = useState(false)
@@ -126,6 +283,35 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
     const [voicemailsList, setVoicemailsList] = useState<VoicemailItem[]>([])
     const [unreadVoicemails, setUnreadVoicemails] = useState<number>(0)
     const [listErrorMessage, setListErrorMessage] = useState<string | null>(null)
+
+    // Contacts
+    const [contactsList, setContactsList] = useState<ContactItem[]>([])
+    const [contactsLoading, setContactsLoading] = useState(false)
+    const [contactsError, setContactsError] = useState<string | null>(null)
+    const [contactSearch, setContactSearch] = useState("")
+    const [contactOriginFilter, setContactOriginFilter] = useState<"all" | "candidate" | "contact" | "manual">("all")
+    const [contactsPage, setContactsPage] = useState(1)
+    const [contactsCount, setContactsCount] = useState(0)
+    const [contactsNext, setContactsNext] = useState<string | null>(null)
+    const [contactsPrevious, setContactsPrevious] = useState<string | null>(null)
+    const [selectedContactId, setSelectedContactId] = useState<number | null>(null)
+    const [selectedContact, setSelectedContact] = useState<ContactItem | null>(null)
+    const [contactCalls, setContactCalls] = useState<ContactHistoryCall[]>([])
+    const [contactCallsLoading, setContactCallsLoading] = useState(false)
+    const [contactNotice, setContactNotice] = useState<string | null>(null)
+    const [contactFormOpen, setContactFormOpen] = useState(false)
+    const [contactSaving, setContactSaving] = useState(false)
+    const [atsFetching, setAtsFetching] = useState(false)
+    const [atsPlatforms, setAtsPlatforms] = useState<AtsPlatformItem[]>([])
+    const [atsLoading, setAtsLoading] = useState(false)
+    const [atsError, setAtsError] = useState<string | null>(null)
+    const [selectedAtsUid, setSelectedAtsUid] = useState("")
+    const [newContact, setNewContact] = useState({
+        name: "",
+        email: "",
+        phone: "",
+        company_name: ""
+    })
 
     // Refs for SDK and Audio lifecycle
     const clientRef = useRef<any>(null)
@@ -146,124 +332,14 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
     const currentTabRef = useRef<"recent" | "missed" | "voicemail">("recent")
     const isConnectingRef = useRef<boolean>(false)
     const clientReadyRef = useRef<boolean>(false)
+    const connectionLifecycleRef = useRef<AbortController | null>(null)
+    const clientDisconnectRef = useRef<Promise<void>>(Promise.resolve())
     const dialedNumberRef = useRef<string>("")
+    const isDialingRef = useRef<boolean>(false)
+    const callerLookupPhoneRef = useRef<string>("")
+    const callerLookupRequestRef = useRef<number>(0)
+    const callerLookupAbortRef = useRef<AbortController | null>(null)
     const baseTitleRef = useRef<string>(typeof document !== "undefined" ? document.title : "")
-
-    // ---- Microphone preflight (Windows PCs often have no/blocked/busy mic) ----
-    const [micIssue, setMicIssue] = useState<string | null>(null)
-
-    const micErrorMessage = (err: any): string => {
-        const name = err?.name || ""
-        if (name === "NotFoundError" || name === "DevicesNotFoundError")
-            return "No microphone found. Plug in a headset/microphone and make sure Windows Settings > Sound > Input shows one."
-        if (name === "NotAllowedError" || name === "PermissionDeniedError" || name === "SecurityError")
-            return "Microphone is blocked. Click the lock icon in the address bar, allow Microphone, and also check Windows Settings > Privacy > Microphone."
-        if (name === "NotReadableError" || name === "TrackStartError" || name === "AbortError")
-            return "Microphone is busy or unavailable. Close other apps using it (Teams, Zoom, Skype) and check the default input device in Windows Sound settings."
-        if (name === "OverconstrainedError")
-            return "The selected microphone is not usable. Choose a different default input device."
-        return err?.message ? `Microphone error: ${err.message}` : "Could not access the microphone."
-    }
-
-    // Opens the mic once to trigger the browser permission prompt and verify it works.
-    const ensureMic = async (): Promise<boolean> => {
-        if (typeof navigator === "undefined") return true
-        if (!navigator.mediaDevices?.getUserMedia) {
-            setMicIssue("Calls need a secure (https) page and a browser with microphone support.")
-            return false
-        }
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-            stream.getTracks().forEach((t) => t.stop())
-            setMicIssue(null)
-            return true
-        } catch (err: any) {
-            console.error("[VOIP] microphone check failed", err)
-            setMicIssue(micErrorMessage(err))
-            return false
-        }
-    }
-
-    useEffect(() => {
-        if (typeof navigator === "undefined" || !navigator.mediaDevices) return
-        const passiveCheck = async () => {
-            try {
-                const devices = await navigator.mediaDevices.enumerateDevices()
-                if (!devices.some((d) => d.kind === "audioinput")) {
-                    setMicIssue("No microphone found. Plug in a headset/microphone and make sure Windows Settings > Sound > Input shows one.")
-                    return
-                }
-                const perm = await (navigator as any).permissions?.query?.({ name: "microphone" }).catch(() => null)
-                if (perm?.state === "denied") setMicIssue(micErrorMessage({ name: "NotAllowedError" }))
-                else setMicIssue((prev) => (prev && prev.startsWith("No microphone") ? null : prev))
-            } catch { /* ignore */ }
-        }
-        passiveCheck()
-        navigator.mediaDevices.addEventListener?.("devicechange", passiveCheck)
-        // Ask for mic permission on the first click so it is already granted before a call comes in.
-        const warm = () => { void ensureMic() }
-        window.addEventListener("pointerdown", warm, { once: true })
-        return () => {
-            navigator.mediaDevices.removeEventListener?.("devicechange", passiveCheck)
-            window.removeEventListener("pointerdown", warm)
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [])
-
-    // ---- One-click diagnostics (mic, audio output, media-server reachability) ----
-    const [diagLines, setDiagLines] = useState<{ ok: boolean; text: string }[] | null>(null)
-    const [diagRunning, setDiagRunning] = useState(false)
-
-    const runDiagnostics = async () => {
-        setDiagRunning(true)
-        const out: { ok: boolean; text: string }[] = []
-        const push = (ok: boolean, text: string) => { out.push({ ok, text }); setDiagLines([...out]) }
-        setDiagLines([])
-        try {
-            const ua = typeof navigator !== "undefined" ? navigator.userAgent : ""
-            push(true, `Browser: ${ua.includes("Edg/") ? "Edge" : ua.includes("Firefox/") ? "Firefox" : ua.includes("Chrome/") ? "Chrome" : "Other"} on ${/Windows/.test(ua) ? "Windows" : /Mac/.test(ua) ? "macOS" : /Linux/.test(ua) ? "Linux" : "unknown OS"}`)
-            push(typeof window !== "undefined" && window.isSecureContext, window.isSecureContext ? "Secure (https) page: OK" : "Page is not secure (https). Calls need https.")
-            push(!!(window as any).RTCPeerConnection, (window as any).RTCPeerConnection ? "WebRTC supported: OK" : "WebRTC is not available in this browser.")
-
-            const micOk = await ensureMic()
-            push(micOk, micOk ? "Microphone: OK" : "Microphone: FAILED - see the red message above")
-
-            try {
-                const devs = await navigator.mediaDevices.enumerateDevices()
-                const ins = devs.filter((d) => d.kind === "audioinput").length
-                const outs = devs.filter((d) => d.kind === "audiooutput").length
-                push(ins > 0, `Audio inputs found: ${ins}`)
-                push(outs > 0, `Audio outputs found: ${outs}${outs === 0 ? " (check speakers/headset in Windows Sound settings)" : ""}`)
-            } catch { push(false, "Could not list audio devices") }
-
-            // Media-server reachability: gather ICE candidates from Telnyx STUN/TURN.
-            await new Promise<void>((resolve) => {
-                let srflx = false, relay = false, done = false
-                const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.telnyx.com:3478" }, { urls: "turn:turn.telnyx.com:3478?transport=tcp", username: "testuser000", credential: "test0000" }] })
-                const finish = () => {
-                    if (done) return
-                    done = true
-                    try { pc.close() } catch { /* ignore */ }
-                    push(srflx, srflx ? "Reach Telnyx media servers (UDP/STUN): OK" : "Telnyx media servers (UDP/STUN) NOT reachable - a firewall, VPN or antivirus is probably blocking WebRTC. Try another network or disable the VPN.")
-                    if (!srflx) push(relay, relay ? "TURN relay (TCP) reachable - calls may still work" : "TURN relay NOT reachable either")
-                    resolve()
-                }
-                pc.createDataChannel("diag")
-                pc.onicecandidate = (e) => {
-                    const c = e.candidate?.candidate || ""
-                    if (c.includes(" typ srflx")) srflx = true
-                    if (c.includes(" typ relay")) relay = true
-                    if (!e.candidate) finish()
-                }
-                pc.createOffer().then((o) => pc.setLocalDescription(o)).catch(() => finish())
-                setTimeout(finish, 6000)
-            })
-
-            push(status === "online", status === "online" ? "Phone registered with Telnyx: Online" : `Phone registration: ${status}${statusDetail ? " - " + statusDetail : ""}`)
-        } finally {
-            setDiagRunning(false)
-        }
-    }
 
     // Keep refs synchronized
     useEffect(() => {
@@ -291,6 +367,33 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
             lower === "active call" ||
             lower === "incoming call"
         )
+    }
+
+    const normalizeLookupPhone = (value: any): string => {
+        if (!value || typeof value !== "string" || isPlaceholder(value)) return ""
+        const trimmed = value.trim()
+        const digits = trimmed.replace(/\D/g, "")
+        if (digits.length < 5) return ""
+
+        const compact = trimmed.replace(/[^\d+]/g, "")
+        if (!compact) return ""
+
+        if (compact.startsWith("+")) {
+            return `+${compact.slice(1).replace(/\+/g, "")}`
+        }
+
+        return compact.replace(/\+/g, "")
+    }
+
+    const sanitizeCallableNumber = (value: any): string => {
+        if (!value || typeof value !== "string" || isPlaceholder(value)) return ""
+        const trimmed = value.trim()
+        if (!trimmed) return ""
+
+        const digits = trimmed.replace(/\D/g, "")
+        if (!digits) return ""
+
+        return trimmed.startsWith("+") ? `+${digits}` : digits
     }
 
     // Helper: callerOf(call)
@@ -332,6 +435,133 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         return ""
     }
 
+    const stopMediaStream = (stream?: MediaStream | null) => {
+        stream?.getTracks().forEach(track => {
+            try { track.stop() } catch { }
+        })
+    }
+
+    const friendlyMediaError = (error: any): string => {
+        const name = String(error?.name || "")
+        const message = String(error?.message || error || "")
+
+        if (message) {
+            const lower = message.toLowerCase()
+            if (
+                lower.includes("microphone access is blocked") ||
+                lower.includes("microphone permission") ||
+                lower.includes("secure context") ||
+                lower.includes("https")
+            ) {
+                return message
+            }
+        }
+
+        switch (name) {
+            case "NotAllowedError":
+            case "PermissionDeniedError":
+            case "SecurityError":
+                return "Microphone access is blocked. Allow microphone access in Chrome site settings and Windows privacy settings, then try again."
+            case "NotFoundError":
+            case "DevicesNotFoundError":
+                return "No microphone was found. Connect or enable a microphone, then try again."
+            case "NotReadableError":
+            case "TrackStartError":
+                return "Chrome could not start the microphone. Close other apps using it, check Windows microphone privacy settings, then try again."
+            case "OverconstrainedError":
+            case "ConstraintNotSatisfiedError":
+                return "The selected microphone could not be used. Choose the system default microphone in Chrome, then try again."
+            case "AbortError":
+                return "The microphone stopped while the call was starting. Try again after reconnecting the microphone."
+            case "TypeError":
+                return "This browser context cannot access the microphone. Use Chrome on HTTPS or localhost."
+            default:
+                return message || "Could not start the call. Check microphone permission and try again."
+        }
+    }
+
+    const telnyxErrorMessage = (error: any): string => {
+        const code = Number(error?.code)
+        switch (code) {
+            case 40001:
+                return "Chrome could not create the WebRTC offer. Refresh the page and try the call again."
+            case 40005:
+                return "Could not send the call request to Telnyx. Check the connection and try again."
+            case 42001:
+                return "Microphone access is blocked. Allow microphone access in Chrome site settings and Windows privacy settings, then try again."
+            case 42002:
+                return "No microphone was found. Connect or enable a microphone, then try again."
+            case 42003:
+                return "Chrome could not access the microphone. Close other apps using it, then try again."
+            case 44002:
+                return "The phone number is missing or invalid. Enter a valid destination number and try again."
+            case 45001:
+            case 45002:
+                return "The Telnyx signaling connection was interrupted. Check the network and try again."
+            case 46003:
+                return "The phone registration expired. Reconnecting now; try again when the badge is Online."
+            case 48001:
+                return "This device is offline. Reconnect to the internet and try again."
+            default:
+                return error?.message || "Call setup failed. Check the console for details and try again."
+        }
+    }
+
+    const ensureMicrophoneReady = async (): Promise<MediaStream> => {
+        if (typeof window === "undefined" || typeof navigator === "undefined") {
+            throw new Error("Calls can only start in a browser.")
+        }
+
+        if (!window.isSecureContext) {
+            throw new Error("Voice calling needs HTTPS or localhost so Chrome can use the microphone.")
+        }
+
+        if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== "function") {
+            throw new Error("This browser does not support microphone access required for calls.")
+        }
+
+        try {
+            const permission = await navigator.permissions?.query?.({ name: "microphone" as PermissionName })
+            if (permission?.state === "denied") {
+                throw new Error("Microphone access is blocked. Allow microphone access in Chrome site settings and Windows privacy settings, then try again.")
+            }
+        } catch (error: any) {
+            if (String(error?.message || "").toLowerCase().includes("microphone access is blocked")) {
+                throw error
+            }
+        }
+
+        let stream: MediaStream | null = null
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                },
+                video: false
+            })
+        } catch {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+            } catch (secondError) {
+                throw secondError
+            }
+        }
+
+        if (!stream) {
+            throw new Error("Chrome could not open the microphone.")
+        }
+
+        const hasLiveAudio = stream.getAudioTracks().some(track => track.readyState === "live")
+        if (!hasLiveAudio) {
+            stopMediaStream(stream)
+            throw new Error("Chrome opened the microphone, but no live audio track was available.")
+        }
+
+        return stream
+    }
+
     // API fetch wrapper matching portal.js
     const api = async (url: string, opts: RequestInit = {}) => {
         const token = cookieUtils.get("access")
@@ -354,9 +584,150 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         })
         const data = await res.json().catch(() => ({}))
         if (!res.ok) {
-            throw new Error(data.error || `HTTP ${res.status}`)
+            throw new Error(data.error || data.detail || `HTTP ${res.status}`)
         }
         return data
+    }
+
+    const personName = (person?: {
+        firstName?: string;
+        lastName?: string;
+        name?: string;
+        email?: string;
+        phone?: string;
+        mobile?: string;
+    }) => {
+        if (!person) return "Unknown"
+        const name = [person.firstName, person.lastName].filter(Boolean).join(" ").trim()
+        return name || person.name || person.email || person.mobile || person.phone || "Unknown"
+    }
+
+    const compactParts = (parts: Array<string | number | null | undefined | false>) =>
+        parts
+            .map(part => (part === undefined || part === null || part === false ? "" : String(part).trim()))
+            .filter(Boolean)
+            .join(" · ")
+
+    const formatAddress = (address?: JobAdderAddress) => {
+        if (!address) return ""
+        const street = Array.isArray(address.street) ? address.street.join(", ") : address.street
+        return compactParts([
+            street,
+            address.city,
+            address.state,
+            address.postalCode || address.postcode,
+            address.country
+        ])
+    }
+
+    const formatJobAdderUser = (user?: JobAdderUser) => {
+        if (!user) return ""
+        const name = personName(user)
+        return compactParts([name === "Unknown" ? "" : name, user.jobTitle || user.position, user.email])
+    }
+
+    const formatLookupDate = (value?: string) => {
+        if (!value) return ""
+        const date = new Date(value)
+        if (Number.isNaN(date.getTime())) return ""
+        return date.toLocaleString()
+    }
+
+    const recordPhone = (record: JobAdderCandidate | JobAdderContact) =>
+        record.mobileNormalized || record.mobile || record.phone || ""
+
+    const getLookupOptions = (data?: JobAdderCallerLookupResponse | null): CallerLookupOption[] => {
+        const candidates = Array.isArray(data?.candidates) ? data.candidates : []
+        const contacts = Array.isArray(data?.contacts) ? data.contacts : []
+
+        return [
+            ...candidates.map((candidate, index) => ({
+                key: `candidate:${candidate.candidateId || index}:${index}`,
+                type: "candidate" as const,
+                index,
+                label: compactParts([
+                    personName(candidate),
+                    candidate.status?.name,
+                    recordPhone(candidate)
+                ]),
+                record: candidate
+            })),
+            ...contacts.map((contact, index) => ({
+                key: `contact:${contact.contactId || index}:${index}`,
+                type: "contact" as const,
+                index,
+                label: compactParts([
+                    personName(contact),
+                    contact.company?.name,
+                    contact.status?.name,
+                    recordPhone(contact)
+                ]),
+                record: contact
+            }))
+        ]
+    }
+
+    const resetCallerLookup = () => {
+        callerLookupRequestRef.current += 1
+        callerLookupPhoneRef.current = ""
+        if (callerLookupAbortRef.current) {
+            callerLookupAbortRef.current.abort()
+            callerLookupAbortRef.current = null
+        }
+        setCallerLookup(null)
+        setSelectedLookupKey("")
+    }
+
+    const startCallerLookup = (rawPhone: any) => {
+        const phone = normalizeLookupPhone(rawPhone)
+        if (!phone || callerLookupPhoneRef.current === phone) return
+
+        callerLookupPhoneRef.current = phone
+        callerLookupRequestRef.current += 1
+        const requestId = callerLookupRequestRef.current
+
+        if (callerLookupAbortRef.current) {
+            callerLookupAbortRef.current.abort()
+        }
+
+        const controller = new AbortController()
+        callerLookupAbortRef.current = controller
+        setCallerLookup({ phone, loading: true, error: null, data: null })
+        setSelectedLookupKey("")
+
+        const separator = cfgRef.current.callerLookupUrl.includes("?") ? "&" : "?"
+        const lookupUrl = `${cfgRef.current.callerLookupUrl}${separator}phone=${encodeURIComponent(phone)}`
+
+        api(lookupUrl, { signal: controller.signal })
+            .then((data: JobAdderCallerLookupResponse) => {
+                if (controller.signal.aborted || callerLookupRequestRef.current !== requestId) return
+
+                const normalizedData: JobAdderCallerLookupResponse = {
+                    ...data,
+                    candidates: Array.isArray(data?.candidates) ? data.candidates : [],
+                    contacts: Array.isArray(data?.contacts) ? data.contacts : []
+                }
+                const firstOption = getLookupOptions(normalizedData)[0]
+
+                setCallerLookup({
+                    phone,
+                    loading: false,
+                    error: null,
+                    data: normalizedData
+                })
+                setSelectedLookupKey(firstOption?.key || "")
+            })
+            .catch((e: any) => {
+                if (controller.signal.aborted || callerLookupRequestRef.current !== requestId) return
+
+                setCallerLookup({
+                    phone,
+                    loading: false,
+                    error: e?.message || "Could not load JobAdder caller details",
+                    data: null
+                })
+                setSelectedLookupKey("")
+            })
     }
 
     // Reliable Web Audio ringtone. A looping AudioBuffer is used instead of
@@ -392,6 +763,39 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         // If this is the same object/call we created with newCall(), it is outbound
         // even if an older SDK build temporarily omits the direction field.
         return !!(activeCallRef.current && sameCall(activeCallRef.current, call) && dialedNumberRef.current)
+    }
+
+    const phoneOfCall = (call: any): string => {
+        if (!call) return normalizeLookupPhone(dialedNumberRef.current)
+        if (typeof call === "string") return normalizeLookupPhone(call)
+
+        const o = call.options || {}
+        const candidates = isDefinitelyOutbound(call)
+            ? [
+                o.destinationNumber,
+                call.destinationNumber,
+                dialedNumberRef.current,
+                o.remoteCallerNumber,
+                call.number,
+                call.callerNumber,
+                o.remoteCallerName
+            ]
+            : [
+                o.remoteCallerNumber,
+                call.callerNumber,
+                call.number,
+                o.callerNumber,
+                o.from,
+                o.remoteCallerName,
+                dialedNumberRef.current
+            ]
+
+        for (const candidate of candidates) {
+            const phone = normalizeLookupPhone(candidate)
+            if (phone) return phone
+        }
+
+        return normalizeLookupPhone(callerOf(call))
     }
 
     // Answer the freshest live Telnyx Call object.
@@ -673,9 +1077,183 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         }
     }, [VOICE_BASE])
 
+    const CONTACTS_URL = useMemo(() => `${VOICE_BASE}/contacts/`, [VOICE_BASE])
+    const MY_PLATFORMS_URL = useMemo(() => `${VOICE_BASE}/organizations/platform/my_platforms`, [VOICE_BASE])
+
+    const contactDisplayName = useCallback((contact?: ContactItem | null) => {
+        if (!contact) return "Unknown contact"
+        const name = contact.full_name || [contact.first_name, contact.last_name].filter(Boolean).join(" ").trim()
+        return name || contact.email || contact.phone || "Unknown contact"
+    }, [])
+
+    const extractContacts = useCallback((payload: any): ContactItem[] => {
+        if (Array.isArray(payload?.results)) return payload.results
+        if (Array.isArray(payload?.contacts)) return payload.contacts
+        if (Array.isArray(payload)) return payload
+        return []
+    }, [])
+
+    const extractAtsPlatforms = useCallback((payload: any): AtsPlatformItem[] => {
+        const records = Array.isArray(payload?.results)
+            ? payload.results
+            : Array.isArray(payload?.platforms)
+            ? payload.platforms
+            : Array.isArray(payload)
+            ? payload
+            : []
+
+        return records.filter((platform: AtsPlatformItem) => platform?.is_connected !== false)
+    }, [])
+
+    const atsPlatformName = useCallback((platform?: AtsPlatformItem | null) => {
+        if (!platform) return ""
+        if (typeof platform.platform === "object" && platform.platform?.name) {
+            return platform.platform.name
+        }
+        return platform.platform_name || platform.name || ""
+    }, [])
+
+    const isJobAdderPlatform = useCallback((platform?: AtsPlatformItem | null) => {
+        const name = atsPlatformName(platform).trim().toLowerCase()
+        const slug = typeof platform?.platform === "object" ? platform.platform?.slug?.toLowerCase() : ""
+        return name === "jobadder" || slug === "jobadder"
+    }, [atsPlatformName])
+
+    const loadAtsPlatforms = useCallback(async () => {
+        setAtsLoading(true)
+        setAtsError(null)
+        try {
+            const data = await api(MY_PLATFORMS_URL)
+            const platforms = extractAtsPlatforms(data)
+            setAtsPlatforms(platforms)
+            setSelectedAtsUid(current => {
+                if (current && platforms.some(platform => platform.uid === current && isJobAdderPlatform(platform))) return current
+                return platforms.find(platform => isJobAdderPlatform(platform))?.uid || ""
+            })
+        } catch (e: any) {
+            setAtsPlatforms([])
+            setSelectedAtsUid("")
+            setAtsError(e.message || "Could not load connected ATS platforms")
+        } finally {
+            setAtsLoading(false)
+        }
+    }, [MY_PLATFORMS_URL, extractAtsPlatforms, isJobAdderPlatform])
+
+    const loadContactHistory = useCallback(async (contactId: number) => {
+        setContactCallsLoading(true)
+        try {
+            const data = await api(`${CONTACTS_URL}${contactId}/calls`)
+            setSelectedContact(data.contact || null)
+            setContactCalls(Array.isArray(data.calls) ? data.calls : [])
+        } catch (e: any) {
+            setContactCalls([])
+            setContactNotice(e.message || "Could not load contact calls")
+        } finally {
+            setContactCallsLoading(false)
+        }
+    }, [CONTACTS_URL])
+
+    const loadContacts = useCallback(async (page = contactsPage) => {
+        setContactsLoading(true)
+        setContactsError(null)
+        try {
+            const params = new URLSearchParams({
+                page: String(page),
+                page_size: String(CONTACTS_PAGE_SIZE)
+            })
+            const search = contactSearch.trim()
+            if (search) params.set("search", search)
+            if (contactOriginFilter !== "all") params.set("origin", contactOriginFilter)
+
+            const data = await api(`${CONTACTS_URL}?${params.toString()}`)
+            const contacts = extractContacts(data)
+            setContactsList(contacts)
+            setContactsCount(Number(data?.count ?? contacts.length))
+            setContactsNext(data?.next || null)
+            setContactsPrevious(data?.previous || null)
+            setSelectedContactId(current => {
+                if (current && contacts.some(contact => contact.id === current)) return current
+                return contacts[0]?.id || null
+            })
+        } catch (e: any) {
+            setContactsError(e.message || "Could not load contacts")
+            setContactsList([])
+            setContactsCount(0)
+            setContactsNext(null)
+            setContactsPrevious(null)
+        } finally {
+            setContactsLoading(false)
+        }
+    }, [CONTACTS_URL, contactOriginFilter, contactSearch, contactsPage, extractContacts])
+
+    const createContact = async () => {
+        const payload = {
+            name: newContact.name.trim(),
+            email: newContact.email.trim(),
+            phone: newContact.phone.trim() || undefined,
+            company_name: newContact.company_name.trim()
+        }
+
+        if (!payload.name || !payload.email) {
+            setContactNotice("Name and email are required.")
+            return
+        }
+
+        setContactSaving(true)
+        setContactNotice(null)
+        try {
+            const created = await api(CONTACTS_URL, {
+                method: "POST",
+                body: JSON.stringify(payload)
+            })
+            setNewContact({ name: "", email: "", phone: "", company_name: "" })
+            setContactFormOpen(false)
+            setContactNotice("Contact created.")
+            setContactOriginFilter("all")
+            setContactsPage(1)
+            await loadContacts(1)
+            if (created?.id) setSelectedContactId(created.id)
+        } catch (e: any) {
+            setContactNotice(e.message || "Could not create contact")
+        } finally {
+            setContactSaving(false)
+        }
+    }
+
+    const fetchAtsContacts = async () => {
+        const selectedPlatform = atsPlatforms.find(platform => platform.uid === selectedAtsUid) || null
+        if (!selectedPlatform) {
+            setContactNotice("Select a connected ATS first.")
+            return
+        }
+
+        if (!isJobAdderPlatform(selectedPlatform)) {
+            setContactNotice("Only JobAdder contact fetching is currently supported.")
+            return
+        }
+
+        setAtsFetching(true)
+        setContactNotice(null)
+        try {
+            const data = await api(`${VOICE_BASE}/contacts/fetch`, {
+                method: "POST",
+                body: JSON.stringify({ platform_uid: selectedAtsUid })
+            })
+            setContactNotice(data.detail || "Contact fetching started.")
+            setTimeout(() => {
+                void loadContacts(contactsPage)
+            }, 4000)
+        } catch (e: any) {
+            setContactNotice(e.message || "Could not start contact fetch")
+        } finally {
+            setAtsFetching(false)
+        }
+    }
+
     // Incoming Call UI handling
     const showIncoming = (call: any) => {
         const id = callId(call)
+        setCallError(null)
 
         if (incomingCallRef.current && !sameCall(incomingCallRef.current, call)) {
             stopRinger(incomingCallRef.current)
@@ -684,6 +1262,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         incomingCallRef.current = call
         setIncomingCall(call)
         setIncomingCaller(callerOf(call))
+        startCallerLookup(phoneOfCall(call))
 
         // After Answer/Decline is clicked Telnyx can emit one final ringing update.
         // Do not let that stale update restart the ringtone.
@@ -698,6 +1277,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
 
     // Active Call UI handling
     const showActive = (call: any, stateText: string) => {
+        setCallError(null)
         setIsAnswering(false)
         if (answerWatchdogRef.current) {
             clearTimeout(answerWatchdogRef.current)
@@ -716,6 +1296,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         activeCallRef.current = call
         setActiveCall(call)
         setActiveWho(callerOf(call))
+        startCallerLookup(phoneOfCall(call))
 
         if (stateText === "Connected" && (first || !callStartRef.current)) {
             callStartRef.current = Date.now()
@@ -745,6 +1326,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
             setIncomingCall(null)
             incomingCallRef.current = null
             stopRinger(call || endingIncoming)
+            resetCallerLookup()
             if (typeof document !== "undefined") {
                 document.title = baseTitleRef.current || document.title
             }
@@ -762,6 +1344,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
             setMuted(false)
             callStartRef.current = 0
             dialedNumberRef.current = ""
+            resetCallerLookup()
             if (typeof document !== "undefined") {
                 document.title = baseTitleRef.current || document.title
             }
@@ -886,209 +1469,201 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         }
     }
 
-    // SDK script loader
-    const loadSdk = () => {
-        return new Promise<void>((resolve, reject) => {
-            if (typeof window === "undefined") {
-                return reject(new Error("Telnyx SDK can only load in the browser"))
-            }
-
-            // IMPORTANT: load a version that contains Telnyx VSUP-122 first.
-            // The previous code preferred /js/telnyx-webrtc.js. If that local file is
-            // 2.27.0-2.27.3, transferred calls ring but answer() is silently ignored.
-            const scriptUrls = [
-                "https://unpkg.com/@telnyx/webrtc@2.27.10/lib/bundle.js",
-                "/js/telnyx-webrtc.js"
-            ]
-            let index = 0
-
-            const tryLoadScript = () => {
-                if (index >= scriptUrls.length) {
-                    return reject(new Error("Could not load the Telnyx WebRTC SDK (" + cfgRef.current.sdkUrl + ")"))
-                }
-                const url = scriptUrls[index++]
-                const s = document.createElement("script")
-                s.src = url
-                s.onload = () => resolve()
-                s.onerror = () => {
-                    console.warn(`Failed loading SDK from ${url}, trying fallback...`)
-                    tryLoadScript()
-                }
-                document.head.appendChild(s)
-            }
-
-            tryLoadScript()
-        })
-    }
-
-    const scheduleReconnect = () => {
+    const scheduleReconnect = (delay = 5000) => {
         clearTimeout(reconnectTimerRef.current)
-        reconnectTimerRef.current = setTimeout(connect, 5000)
+        if (!connectionLifecycleRef.current || connectionLifecycleRef.current.signal.aborted) return
+        reconnectTimerRef.current = setTimeout(() => void connect(), delay)
     }
 
     // Connect WebRTC SDK
     const connect = async () => {
+        const lifecycle = connectionLifecycleRef.current
+        if (!lifecycle || lifecycle.signal.aborted) return
         if (activeCallRef.current || incomingCallRef.current) {
-            reconnectTimerRef.current = setTimeout(connect, 15000)
+            scheduleReconnect(15000)
             return
         }
         if (isConnectingRef.current) return
         isConnectingRef.current = true
+        clearTimeout(reconnectTimerRef.current)
+        clearTimeout(readyWatchdogRef.current)
 
         setStatus((prev) => (prev === "online" ? "online" : "connecting"))
-        setStatusDetail("")
+        setStatusDetail("Connecting phone…")
         try {
-            await loadSdk()
-            const RTC =
-                (window as any).TelnyxWebRTC?.TelnyxRTC ||
-                (window as any).TelnyxRTC?.TelnyxRTC ||
-                (window as any).TelnyxRTC ||
-                (window as any).TelnyxWebRTC
-
-            if (!RTC) throw new Error("Telnyx SDK global not found")
-
-            // Fetch live login_token
-            let token: string | null = null
-            let tokenError = ""
-            try {
-                const res = await api(cfgRef.current.tokenUrl, { method: "POST" })
-                token = res?.token || res?.login_token || res?.data?.token || res?.jwt || null
-                if (!token) tokenError = "Backend token response had no token"
-            } catch (err: any) {
-                tokenError = `Backend token request failed: ${err?.message || err}`
-                console.warn(tokenError)
-                try {
-                    const fallbackRes = await fetch("/api/voice/token", { method: "POST" })
-                    const fallbackData = await fallbackRes.json().catch(() => ({}))
-                    if (fallbackRes.ok) {
-                        token = fallbackData?.token || fallbackData?.login_token || null
-                    } else {
-                        tokenError += ` | Fallback failed: ${fallbackData?.error || "HTTP " + fallbackRes.status}`
-                    }
-                } catch (e: any) {
-                    console.warn("Fallback token endpoint note:", e)
+            const RTC = await loadTelnyxSdk(cfgRef.current.sdkUrl)
+            if (lifecycle.signal.aborted) return
+            const accessToken = cookieUtils.get("access")
+            const csrfToken = getCookie("csrftoken")
+            const token = await fetchTelnyxToken(cfgRef.current.tokenUrl, {
+                credentials: "include",
+                signal: lifecycle.signal,
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+                    ...(csrfToken ? { "X-CSRFToken": csrfToken } : {})
                 }
+            })
+            if (lifecycle.signal.aborted) return
+
+            // A call may have arrived while fetching the replacement token.
+            if (activeCallRef.current || incomingCallRef.current) {
+                scheduleReconnect(15000)
+                return
             }
 
-            if (RTC && token) {
-                if (clientRef.current) {
-                    try {
-                        const oldClient = clientRef.current
-                        clientRef.current = null
-                        if (typeof oldClient.off === "function") {
-                            oldClient.off("telnyx.ready")
-                            oldClient.off("telnyx.socket.open")
-                            oldClient.off("telnyx.socket.close")
-                            oldClient.off("telnyx.socket.error")
-                            oldClient.off("telnyx.error")
-                            oldClient.off("telnyx.warning")
-                            oldClient.off("telnyx.notification")
-                        }
-                        oldClient.disconnect()
-                    } catch (e) { }
-                }
-
-                clientReadyRef.current = false
-
-                const client = new RTC({
-                    login_token: token,
-                    enableCallReports: true,
-                    disableCallReport: false,
-                    enableCallRecording: false,
-                    autoReconnect: true,
-                    maxReconnectAttempts: 10
-                })
-
+            clientReadyRef.current = false
+            setStatus("connecting")
+            if (clientRef.current) {
                 try {
-                    client.remoteElement = "remoteAudio"
+                    const oldClient = clientRef.current
+                    clientRef.current = null
+                    if (typeof oldClient.off === "function") {
+                        oldClient.off("telnyx.ready")
+                        oldClient.off("telnyx.socket.open")
+                        oldClient.off("telnyx.socket.close")
+                        oldClient.off("telnyx.socket.error")
+                        oldClient.off("telnyx.error")
+                        oldClient.off("telnyx.warning")
+                        oldClient.off("telnyx.notification")
+                    }
+                    clientDisconnectRef.current = Promise.resolve(oldClient.disconnect()).catch(() => {})
                 } catch (e) { }
-
-                client.on("telnyx.ready", () => {
-                    if (clientRef.current !== client) return
-                    clientReadyRef.current = true
-                    if (readyWatchdogRef.current) {
-                        clearTimeout(readyWatchdogRef.current)
-                        readyWatchdogRef.current = null
-                    }
-                    setStatus("online")
-                    setStatusDetail("Online - ready for incoming calls")
-                    // If the invite arrived during registration/mount, recover it now.
-                    setTimeout(reconcileRtcCalls, 0)
-                })
-
-                client.on("telnyx.socket.open", () => {
-                    if (clientRef.current !== client) return
-                    // Socket open only means signaling transport is up. Wait for
-                    // telnyx.ready before advertising that the phone can receive calls.
-                    setStatus("connecting")
-                    setStatusDetail("Registering phone…")
-                })
-
-                client.on("telnyx.error", (e: any) => {
-                    if (clientRef.current !== client) return
-                    console.error("telnyx.error", e)
-                    const isFatal = e?.fatal === true || e?.code === 46001 || e?.code === 46002 || e?.code === 45003 || e?.code === 48001
-                    if (!isFatal && e?.message) setStatusDetail(String(e.message))
-                    if (isFatal && !activeCallRef.current && !incomingCallRef.current) {
-                        clientReadyRef.current = false
-                        setStatus("offline")
-                        setStatusDetail(e?.message || "Offline")
-                        scheduleReconnect()
-                    }
-                })
-
-                client.on("telnyx.socket.close", () => {
-                    if (clientRef.current !== client) return
-                    clientReadyRef.current = false
-                    if (!activeCallRef.current && !incomingCallRef.current) {
-                        setStatus("connecting")
-                        setStatusDetail("Reconnecting…")
-                        // SDK autoReconnect gets the first chance; this is only a
-                        // fallback if registration never returns.
-                        clearTimeout(reconnectTimerRef.current)
-                        reconnectTimerRef.current = setTimeout(() => {
-                            if (!clientReadyRef.current && !activeCallRef.current && !incomingCallRef.current) connect()
-                        }, 12000)
-                    }
-                })
-
-                client.on("telnyx.warning", (warning: any) => {
-                    if (clientRef.current !== client) return
-                    console.warn("[TELNYX WARNING]", warning)
-                    if (warning?.code === 33007 || String(warning?.code) === "33007") {
-                        setStatusDetail("Telnyx blocked a duplicate inbound answer (33007)")
-                    }
-                })
-
-                client.on("telnyx.notification", onNotification)
-                clientRef.current = client
-
-                // If the WebSocket opens but REGED/telnyx.ready never arrives, do not
-                // leave a misleading green Online badge forever.
-                if (readyWatchdogRef.current) clearTimeout(readyWatchdogRef.current)
-                readyWatchdogRef.current = setTimeout(() => {
-                    if (clientRef.current === client && !clientReadyRef.current && !activeCallRef.current && !incomingCallRef.current) {
-                        console.warn("Telnyx socket connected but client never became ready; reconnecting")
-                        setStatus("offline")
-                        setStatusDetail("Phone registration timed out")
-                        try { client.disconnect() } catch { }
-                        scheduleReconnect()
-                    }
-                }, 15000)
-
-                client.connect()
-            } else {
-                clientReadyRef.current = false
-                throw new Error(tokenError || "Could not get a Telnyx WebRTC login token")
             }
+            await clientDisconnectRef.current
+            if (lifecycle.signal.aborted) return
+
+            const client = new RTC({
+                login_token: token,
+                enableCallReports: true,
+                disableCallReport: false,
+                enableCallRecording: false,
+                autoReconnect: true,
+                maxReconnectAttempts: 10
+            })
+
+            try {
+                client.remoteElement = "remoteAudio"
+            } catch (e) { }
+
+            const startReadyWatchdog = () => {
+                clearTimeout(readyWatchdogRef.current)
+                readyWatchdogRef.current = setTimeout(() => {
+                    if (clientRef.current !== client || clientReadyRef.current) return
+                    if (activeCallRef.current || incomingCallRef.current) return
+                    setStatus("offline")
+                    setStatusDetail("Phone registration timed out. Retrying…")
+                    scheduleReconnect()
+                }, 30000)
+            }
+
+            client.on("telnyx.ready", () => {
+                if (clientRef.current !== client) return
+                clientReadyRef.current = true
+                clearTimeout(reconnectTimerRef.current)
+                reconnectTimerRef.current = null
+                if (readyWatchdogRef.current) {
+                    clearTimeout(readyWatchdogRef.current)
+                    readyWatchdogRef.current = null
+                }
+                setStatus("online")
+                setStatusDetail("Online - ready for incoming calls")
+                // If the invite arrived during registration/mount, recover it now.
+                setTimeout(reconcileRtcCalls, 0)
+            })
+
+            client.on("telnyx.socket.open", () => {
+                if (clientRef.current !== client) return
+                // Socket open only means signaling transport is up. Wait for
+                // telnyx.ready before advertising that the phone can receive calls.
+                clientReadyRef.current = false
+                setStatus("connecting")
+                setStatusDetail("Registering phone…")
+                startReadyWatchdog()
+            })
+
+            client.on("telnyx.error", (e: any) => {
+                if (clientRef.current !== client) return
+                console.error("telnyx.error", e)
+                const telnyxError = e?.error || e
+                const code = Number(telnyxError?.code || e?.code)
+                const message = telnyxErrorMessage(telnyxError)
+                const eventCallId = String(e?.callId || telnyxError?.callId || "")
+                const currentActive = activeCallRef.current
+                const currentIncoming = incomingCallRef.current
+                const setupFailureCodes = [40001, 40005, 42001, 42002, 42003, 44002]
+
+                if (
+                    eventCallId ||
+                    currentActive ||
+                    setupFailureCodes.includes(code)
+                ) {
+                    setCallError(message)
+                    setStatusDetail(message)
+                }
+
+                const matchesActiveCall =
+                    currentActive &&
+                    (!eventCallId || callId(currentActive) === eventCallId || recoveredCallId(currentActive) === eventCallId)
+                const matchesIncomingCall =
+                    currentIncoming &&
+                    (!eventCallId || callId(currentIncoming) === eventCallId || recoveredCallId(currentIncoming) === eventCallId)
+
+                if ((matchesActiveCall || matchesIncomingCall) && setupFailureCodes.includes(code)) {
+                    endCall(matchesActiveCall ? currentActive : currentIncoming)
+                }
+
+                const isFatal = telnyxError?.fatal === true || e?.fatal === true || code === 46001 || code === 46002 || code === 45003 || code === 48001
+                if (isFatal && !activeCallRef.current && !incomingCallRef.current) {
+                    clientReadyRef.current = false
+                    setStatus("offline")
+                    setStatusDetail(message || "Offline")
+                    scheduleReconnect()
+                }
+            })
+
+            client.on("telnyx.socket.close", () => {
+                if (clientRef.current !== client) return
+                clientReadyRef.current = false
+                clearTimeout(readyWatchdogRef.current)
+                setStatus("connecting")
+                setStatusDetail("Reconnecting…")
+                // Give the SDK time to recover before replacing the client.
+                scheduleReconnect(12000)
+            })
+
+            client.on("telnyx.socket.error", () => {
+                if (clientRef.current !== client) return
+                clientReadyRef.current = false
+                setStatus("offline")
+                setStatusDetail("Could not reach the phone service. Check your connection; retrying…")
+                scheduleReconnect(12000)
+            })
+
+            client.on("telnyx.warning", (warning: any) => {
+                if (clientRef.current !== client) return
+                console.warn("[TELNYX WARNING]", warning)
+                if (warning?.code === 33007 || String(warning?.code) === "33007") {
+                    setStatusDetail("Telnyx blocked a duplicate inbound answer (33007)")
+                }
+            })
+
+            client.on("telnyx.notification", (notification: any) => {
+                if (clientRef.current === client) onNotification(notification)
+            })
+            clientRef.current = client
+
+            startReadyWatchdog()
+            await client.connect()
         } catch (e: any) {
+            if (lifecycle.signal.aborted) return
             console.error("Telnyx connection error:", e)
             clientReadyRef.current = false
             setStatus("offline")
             setStatusDetail(e?.message || "Offline")
             scheduleReconnect()
         } finally {
-            isConnectingRef.current = false
+            if (!lifecycle.signal.aborted) isConnectingRef.current = false
         }
     }
 
@@ -1140,8 +1715,10 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
             }, 4000)
         } catch (e: any) {
             console.error("Could not answer incoming call", e)
+            const message = friendlyMediaError(e)
             suppressRingForCallIdsRef.current.delete(id)
-            setStatusDetail(e?.message || "Could not answer incoming call")
+            setCallError(message)
+            setStatusDetail(message || "Could not answer incoming call")
             setIsAnswering(false)
             if (incomingCallRef.current && sameCall(incomingCallRef.current, call)) {
                 startRinger(incomingCallRef.current)
@@ -1178,6 +1755,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
 
         setIncomingCall(null)
         incomingCallRef.current = null
+        resetCallerLookup()
         if (typeof document !== "undefined") {
             document.title = baseTitleRef.current || document.title
         }
@@ -1213,41 +1791,78 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
     // Dial action matching portal.js
     const dial = async (number?: string) => {
         const rawTarget = (number || dialNumber || "").trim()
-        if (!rawTarget) return
-        if (!clientRef.current || !clientReadyRef.current) {
-            alert("Phone is not ready yet. Wait for the Online badge.")
-            return
-        }
-        if (!(await ensureMic())) {
-            alert(micIssue || "Microphone is not available. Please check your microphone and try again.")
-            return
-        }
-
-        dialedNumberRef.current = rawTarget
-
-        if (clientRef.current && typeof clientRef.current.newCall === "function") {
-            try {
-                const call = clientRef.current.newCall({
-                    destinationNumber: rawTarget,
-                    remoteCallerName: rawTarget,
-                    callerNumber: cfgRef.current.callerId || undefined,
-                    remoteElement: "remoteAudio",
-                    customHeaders: [{ name: "X-Voice-Ext", value: cfgRef.current.extensionUid || extension || "" }]
-                })
-                if (call) {
-                    activeCallRef.current = call
-                    showActive(call, "Calling…")
-                }
-            } catch (err: any) {
-                console.warn("newCall error:", err)
-                alert(`Could not start the call: ${err?.message || err}`)
+        const target = sanitizeCallableNumber(rawTarget)
+        if (!target) {
+            const message = rawTarget ? "Enter a valid telephone number." : ""
+            if (message) {
+                setCallError(message)
+                setStatusDetail(message)
             }
-        } else {
-            // Simulated preview active call state
-            const simCall = { id: "call-" + Date.now(), direction: "outbound", number: rawTarget, destinationNumber: rawTarget, options: { destinationNumber: rawTarget, remoteCallerName: rawTarget } }
-            showActive(simCall, "Calling…")
+            return
         }
-        setDialNumber("")
+        if (isDialingRef.current) return
+
+        if (!clientRef.current || !clientReadyRef.current) {
+            const message = "Phone is not ready yet. Wait for the Online badge, then try again."
+            setCallError(message)
+            setStatusDetail(message)
+            return
+        }
+
+        if (activeCallRef.current || incomingCallRef.current) {
+            const message = "Finish the current call before starting another one."
+            setCallError(message)
+            setStatusDetail(message)
+            return
+        }
+
+        isDialingRef.current = true
+        setIsDialing(true)
+        setCallError(null)
+        setStatusDetail("Checking microphone...")
+
+        let localStream: MediaStream | null = null
+
+        try {
+            localStream = await ensureMicrophoneReady()
+            const client = clientRef.current
+            if (!client || !clientReadyRef.current || typeof client.newCall !== "function") {
+                throw new Error("Phone is not ready yet. Wait for the Online badge, then try again.")
+            }
+
+            dialedNumberRef.current = target
+            setStatusDetail("Starting call...")
+
+            const call = client.newCall({
+                destinationNumber: target,
+                remoteCallerName: target,
+                callerNumber: cfgRef.current.callerId || undefined,
+                remoteElement: "remoteAudio",
+                audio: true,
+                localStream,
+                customHeaders: [{ name: "X-Voice-Ext", value: cfgRef.current.extensionUid || extension || "" }]
+            })
+
+            if (!call) {
+                throw new Error("Telnyx did not create a call session.")
+            }
+
+            // The Telnyx Call now owns this stream and will stop it when the call is finalized.
+            localStream = null
+            activeCallRef.current = call
+            showActive(call, "Calling…")
+            setDialNumber("")
+        } catch (err: any) {
+            console.warn("newCall error:", err)
+            stopMediaStream(localStream)
+            dialedNumberRef.current = ""
+            const message = friendlyMediaError(err)
+            setCallError(message)
+            setStatusDetail(message)
+        } finally {
+            isDialingRef.current = false
+            setIsDialing(false)
+        }
     }
 
     // Transfer toggle & doTransfer matching portal.js
@@ -1268,13 +1883,23 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
     }
 
     const doTransfer = async (body: { extension_uid?: string; number?: string }) => {
+        const cleanBody = body.number
+            ? { ...body, number: sanitizeCallableNumber(body.number) }
+            : body
+
+        if (body.number && !cleanBody.number) {
+            setTransferMsg("Enter a valid outside number.")
+            return
+        }
+
         setTransferMsg("Transferring…")
         setIsTransferring(true)
         try {
             await api(cfgRef.current.transferUrl, {
                 method: "POST",
-                body: JSON.stringify(body)
+                body: JSON.stringify(cleanBody)
             })
+            if (cleanBody.number) setTransferNumber(cleanBody.number)
             setTransferMsg("Transferred.")
         } catch (e: any) {
             setTransferMsg(e.message || "Transfer failed")
@@ -1292,6 +1917,9 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
 
     // Initial lifecycle, audio unlock & polling intervals
     useEffect(() => {
+        const lifecycle = new AbortController()
+        connectionLifecycleRef.current = lifecycle
+        isConnectingRef.current = false
         if (typeof document !== "undefined" && !baseTitleRef.current) {
             baseTitleRef.current = document.title
         }
@@ -1352,7 +1980,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         }
         document.addEventListener("visibilitychange", visibilityHandler)
 
-        setTimeout(() => {
+        const audioUnlockTimer = setTimeout(() => {
             try {
                 const ctx = getAudioContext()
                 if (ctx) setSoundBannerVisible(ctx.state !== "running")
@@ -1362,6 +1990,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         // Connect WebRTC and fetch initial list
         connect()
         refreshList()
+        loadAtsPlatforms()
 
         // 15s refresh interval
         const listInterval = setInterval(refreshList, 15000)
@@ -1379,12 +2008,20 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         }, 8 * 3600 * 1000)
 
         return () => {
+            lifecycle.abort()
+            isConnectingRef.current = false
             window.removeEventListener("pointerdown", handleUnlock)
             window.removeEventListener("keydown", handleUnlock)
             document.removeEventListener("visibilitychange", visibilityHandler)
             clearInterval(listInterval)
             clearInterval(tokenInterval)
+            clearTimeout(audioUnlockTimer)
             stopRinger()
+            callerLookupRequestRef.current += 1
+            if (callerLookupAbortRef.current) {
+                callerLookupAbortRef.current.abort()
+                callerLookupAbortRef.current = null
+            }
             if (rtcSyncTimerRef.current) {
                 clearInterval(rtcSyncTimerRef.current)
                 rtcSyncTimerRef.current = null
@@ -1410,26 +2047,609 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                         client.off("telnyx.warning")
                         client.off("telnyx.notification")
                     }
-                    client.disconnect()
+                    clientDisconnectRef.current = Promise.resolve(client.disconnect()).catch(() => {})
                 } catch (e) { }
             }
         }
-    }, [flowUid, refreshList])
+    }, [flowUid, refreshList, loadAtsPlatforms])
 
     // Re-fetch list on tab change
     useEffect(() => {
         refreshList()
     }, [currentTab, refreshList])
 
+    useEffect(() => {
+        const delay = contactSearch.trim() ? 350 : 0
+        const timer = setTimeout(() => {
+            void loadContacts(contactsPage)
+        }, delay)
+
+        return () => clearTimeout(timer)
+    }, [contactOriginFilter, contactSearch, contactsPage, loadContacts])
+
+    useEffect(() => {
+        if (!selectedContactId) {
+            setSelectedContact(null)
+            setContactCalls([])
+            return
+        }
+        void loadContactHistory(selectedContactId)
+    }, [selectedContactId, loadContactHistory])
+
     const filteredCalls = currentTab === "missed"
         ? callsList.filter(c => c.direction === "inbound" && c.status === "missed")
         : callsList
 
+    const totalContactPages = Math.max(1, Math.ceil(contactsCount / CONTACTS_PAGE_SIZE))
+    const contactRangeStart = contactsCount === 0 ? 0 : (contactsPage - 1) * CONTACTS_PAGE_SIZE + 1
+    const contactRangeEnd = contactsCount === 0 ? 0 : Math.min(contactsCount, contactRangeStart + contactsList.length - 1)
+
     const arrow = { inbound: "↙", outbound: "↗" }
+
+    const renderLookupDetail = (label: string, value?: React.ReactNode, icon?: React.ReactNode) => {
+        if (!value) return null
+        return (
+            <div className="min-w-0 rounded-lg border border-border/60 bg-background/60 p-2.5">
+                <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    {icon}
+                    <span>{label}</span>
+                </div>
+                <div className="mt-1 text-xs font-medium text-foreground break-words">{value}</div>
+            </div>
+        )
+    }
+
+    const renderCallerLookupPanel = () => {
+        if (!callerLookup) return null
+
+        const data = callerLookup.data
+        const candidates = Array.isArray(data?.candidates) ? data.candidates : []
+        const contacts = Array.isArray(data?.contacts) ? data.contacts : []
+        const options = getLookupOptions(data)
+        const selectedOption = options.find(option => option.key === selectedLookupKey) || options[0]
+        const selectedRecord = selectedOption?.record
+        const selectedCandidate = selectedOption?.type === "candidate" ? (selectedRecord as JobAdderCandidate) : null
+        const selectedContact = selectedOption?.type === "contact" ? (selectedRecord as JobAdderContact) : null
+        const address = selectedCandidate ? formatAddress(selectedCandidate.address) : ""
+        const company = selectedContact?.company
+        const owner = selectedRecord ? formatJobAdderUser(selectedRecord.updatedBy || selectedRecord.createdBy) : ""
+        const updated = selectedRecord ? formatLookupDate(selectedRecord.updatedAt || selectedRecord.createdAt) : ""
+        const notConnected = data && data.jobadder_connected === false
+
+        return (
+            <div className="rounded-xl border border-border/70 bg-muted/35 p-3 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0 flex items-center gap-2">
+                        <Users className="w-4 h-4 text-primary shrink-0" />
+                        <div className="min-w-0">
+                            <div className="text-xs font-semibold uppercase tracking-wider text-foreground">
+                                JobAdder matches
+                            </div>
+                            <div className="text-[11px] text-muted-foreground truncate">
+                                {callerLookup.phone}
+                            </div>
+                        </div>
+                    </div>
+                    {callerLookup.loading ? (
+                        <Badge variant="outline" className="gap-1.5 text-[10px] font-semibold shrink-0">
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            Loading
+                        </Badge>
+                    ) : data && !callerLookup.error && !notConnected ? (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                            <Badge variant="outline" className="bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30 text-[10px] font-semibold">
+                                {candidates.length} candidates
+                            </Badge>
+                            <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] font-semibold">
+                                {contacts.length} contacts
+                            </Badge>
+                        </div>
+                    ) : null}
+                </div>
+
+                {callerLookup.error ? (
+                    <div className="text-xs font-medium text-rose-600 dark:text-rose-400">
+                        {callerLookup.error}
+                    </div>
+                ) : callerLookup.loading && !data ? (
+                    <div className="text-xs text-muted-foreground">
+                        Searching JobAdder records…
+                    </div>
+                ) : notConnected ? (
+                    <div className="text-xs text-muted-foreground">
+                        {data?.detail || data?.error || "JobAdder is not connected for this account."}
+                    </div>
+                ) : options.length === 0 ? (
+                    <div className="text-xs text-muted-foreground">
+                        No JobAdder candidate or contact found for this number.
+                    </div>
+                ) : selectedRecord ? (
+                    <>
+                        <select
+                            className="w-full h-9 rounded-lg border border-input bg-background px-3 text-xs font-medium text-foreground shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                            value={selectedOption?.key || ""}
+                            onChange={e => setSelectedLookupKey(e.target.value)}
+                        >
+                            {candidates.length > 0 && (
+                                <optgroup label={`Candidates (${candidates.length})`}>
+                                    {candidates.map((candidate, index) => {
+                                        const key = `candidate:${candidate.candidateId || index}:${index}`
+                                        const option = options.find(item => item.key === key)
+                                        return (
+                                            <option key={key} value={key}>
+                                                {option?.label || personName(candidate)}
+                                            </option>
+                                        )
+                                    })}
+                                </optgroup>
+                            )}
+                            {contacts.length > 0 && (
+                                <optgroup label={`Contacts (${contacts.length})`}>
+                                    {contacts.map((contact, index) => {
+                                        const key = `contact:${contact.contactId || index}:${index}`
+                                        const option = options.find(item => item.key === key)
+                                        return (
+                                            <option key={key} value={key}>
+                                                {option?.label || personName(contact)}
+                                            </option>
+                                        )
+                                    })}
+                                </optgroup>
+                            )}
+                        </select>
+
+                        <div className="rounded-lg border border-border/70 bg-background/80 p-3 space-y-3">
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                    <div className="text-sm font-bold text-foreground truncate">
+                                        {personName(selectedRecord)}
+                                    </div>
+                                    <div className="text-[11px] text-muted-foreground mt-0.5">
+                                        {selectedCandidate
+                                            ? `Candidate ID ${selectedCandidate.candidateId || "unknown"}`
+                                            : `Contact ID ${selectedContact?.contactId || "unknown"}`}
+                                    </div>
+                                </div>
+                                <Badge
+                                    variant="secondary"
+                                    className={`text-[10px] font-semibold shrink-0 ${
+                                        selectedCandidate
+                                            ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                                            : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                                    }`}
+                                >
+                                    {selectedCandidate ? "Candidate" : "Contact"}
+                                </Badge>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {renderLookupDetail("Phone", recordPhone(selectedRecord), <Phone className="w-3 h-3" />)}
+                                {renderLookupDetail("Email", selectedRecord.email, <Mail className="w-3 h-3" />)}
+                                {renderLookupDetail("Status", selectedRecord.status?.name)}
+                                {selectedCandidate && renderLookupDetail("Seeking", selectedCandidate.seeking)}
+                                {selectedContact && renderLookupDetail("Company", compactParts([company?.name, company?.status?.name]), <Building2 className="w-3 h-3" />)}
+                                {renderLookupDetail("Address", address, <MapPin className="w-3 h-3" />)}
+                                {renderLookupDetail("Owner", owner, <UserRound className="w-3 h-3" />)}
+                                {renderLookupDetail("Updated", updated, <Clock className="w-3 h-3" />)}
+                            </div>
+                        </div>
+                    </>
+                ) : null}
+            </div>
+        )
+    }
+
+    const renderContactsPanel = () => {
+        const currentContact = selectedContact || contactsList.find(contact => contact.id === selectedContactId) || null
+        const selectedPhone = currentContact?.phone || ""
+        const originLabel = currentContact?.origin
+            ? currentContact.origin.replace(/_/g, " ")
+            : "manual"
+        const selectedAtsPlatform = atsPlatforms.find(platform => platform.uid === selectedAtsUid) || null
+        const selectedAtsIsJobAdder = isJobAdderPlatform(selectedAtsPlatform)
+        const originFilterOptions: Array<{ value: "all" | "candidate" | "contact" | "manual"; label: string }> = [
+            { value: "all", label: "All" },
+            { value: "candidate", label: "Candidates" },
+            { value: "contact", label: "Contacts" },
+            { value: "manual", label: "Manual" }
+        ]
+
+        return (
+            <Card className="border border-border/70 bg-card shadow-sm overflow-hidden">
+                <CardContent className="p-0">
+                    <div className="border-b border-border/70 p-4 space-y-3">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                    <Users className="w-4 h-4 text-primary" />
+                                    <h2 className="text-base font-bold text-foreground">Contacts</h2>
+                                </div>
+                                <div className="mt-1 text-xs text-muted-foreground">
+                                    {contactsCount} saved
+                                    {currentContact ? ` · ${contactDisplayName(currentContact)}` : ""}
+                                </div>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 gap-1.5 text-xs"
+                                    onClick={() => void loadContacts()}
+                                    disabled={contactsLoading}
+                                >
+                                    {contactsLoading ? (
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                        <RefreshCw className="w-3.5 h-3.5" />
+                                    )}
+                                    Refresh
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    className="h-8 gap-1.5 text-xs"
+                                    onClick={() => setContactFormOpen(open => !open)}
+                                >
+                                    <Plus className="w-3.5 h-3.5" />
+                                    New
+                                </Button>
+                            </div>
+                        </div>
+
+                        {contactNotice && (
+                            <div className="rounded-lg border border-border/70 bg-muted/35 px-3 py-2 text-xs font-medium text-muted-foreground">
+                                {contactNotice}
+                            </div>
+                        )}
+
+                        <div className="rounded-xl border border-border/70 bg-muted/25 p-3 space-y-2">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                <div className="min-w-0 flex items-center gap-2 sm:w-36">
+                                    <Database className="w-4 h-4 text-primary shrink-0" />
+                                    <span className="text-xs font-semibold text-foreground">Connected ATS</span>
+                                </div>
+                                <select
+                                    className="min-w-0 flex-1 h-9 rounded-lg border border-input bg-background px-3 text-xs font-medium text-foreground shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                                    value={selectedAtsUid}
+                                    onChange={e => {
+                                        setSelectedAtsUid(e.target.value)
+                                        setContactNotice(null)
+                                    }}
+                                    disabled={atsLoading || atsFetching}
+                                >
+                                    <option value="">
+                                        {atsLoading ? "Loading ATS..." : "Select ATS"}
+                                    </option>
+                                    {atsPlatforms.map(platform => {
+                                        const name = atsPlatformName(platform) || "Connected ATS"
+                                        const supported = isJobAdderPlatform(platform)
+                                        return (
+                                            <option key={platform.uid} value={platform.uid} disabled={!supported}>
+                                                {name}{supported ? "" : " (coming soon)"}
+                                            </option>
+                                        )
+                                    })}
+                                </select>
+                                <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    className="h-9 gap-1.5 text-xs sm:w-auto"
+                                    onClick={fetchAtsContacts}
+                                    disabled={atsFetching || atsLoading || !selectedAtsUid || !selectedAtsIsJobAdder}
+                                >
+                                    {atsFetching ? (
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                        <Database className="w-3.5 h-3.5" />
+                                    )}
+                                    Fetch
+                                </Button>
+                            </div>
+                            {atsError && (
+                                <div className="text-xs font-medium text-rose-600 dark:text-rose-400">
+                                    {atsError}
+                                </div>
+                            )}
+                            {!atsLoading && atsPlatforms.length === 0 && !atsError && (
+                                <div className="text-xs text-muted-foreground">
+                                    No connected ATS platforms found.
+                                </div>
+                            )}
+                        </div>
+
+                        {contactFormOpen && (
+                            <div className="rounded-xl border border-border/70 bg-muted/30 p-3 space-y-2">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    <Input
+                                        placeholder="Name"
+                                        className="h-9 text-xs"
+                                        value={newContact.name}
+                                        onChange={e => setNewContact(prev => ({ ...prev, name: e.target.value }))}
+                                    />
+                                    <Input
+                                        placeholder="Email"
+                                        type="email"
+                                        className="h-9 text-xs"
+                                        value={newContact.email}
+                                        onChange={e => setNewContact(prev => ({ ...prev, email: e.target.value }))}
+                                    />
+                                    <Input
+                                        placeholder="Phone"
+                                        inputMode="tel"
+                                        className="h-9 text-xs"
+                                        value={newContact.phone}
+                                        onChange={e => setNewContact(prev => ({ ...prev, phone: e.target.value }))}
+                                    />
+                                    <Input
+                                        placeholder="Company"
+                                        className="h-9 text-xs"
+                                        value={newContact.company_name}
+                                        onChange={e => setNewContact(prev => ({ ...prev, company_name: e.target.value }))}
+                                    />
+                                </div>
+                                <div className="flex justify-end gap-2">
+                                    <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-8 text-xs"
+                                        onClick={() => setContactFormOpen(false)}
+                                        disabled={contactSaving}
+                                    >
+                                        Cancel
+                                    </Button>
+                                    <Button
+                                        size="sm"
+                                        className="h-8 gap-1.5 text-xs"
+                                        onClick={createContact}
+                                        disabled={contactSaving}
+                                    >
+                                        {contactSaving ? (
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                        ) : (
+                                            <UserPlus className="w-3.5 h-3.5" />
+                                        )}
+                                        Save
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="relative">
+                            <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
+                            <Input
+                                placeholder="Search contacts"
+                                className="h-10 pl-9 text-sm rounded-xl"
+                                value={contactSearch}
+                                onChange={e => {
+                                    setContactSearch(e.target.value)
+                                    setContactsPage(1)
+                                }}
+                            />
+                        </div>
+
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                            {originFilterOptions.map(option => (
+                                <button
+                                    key={option.value}
+                                    type="button"
+                                    onClick={() => {
+                                        setContactOriginFilter(option.value)
+                                        setContactsPage(1)
+                                    }}
+                                    className={`h-8 rounded-lg border px-2 text-xs font-semibold transition-colors ${
+                                        contactOriginFilter === option.value
+                                            ? "border-primary/40 bg-primary/10 text-primary"
+                                            : "border-border/60 bg-background/50 text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                                    }`}
+                                >
+                                    {option.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 xl:grid-cols-[minmax(250px,320px)_1fr]">
+                        <div className="border-b xl:border-b-0 xl:border-r border-border/70">
+                            <div className="max-h-[420px] overflow-y-auto p-2 space-y-1.5">
+                                {contactsError ? (
+                                    <div className="p-4 text-center rounded-xl bg-muted/30">
+                                        <div className="text-sm font-semibold text-rose-600">Could not load contacts</div>
+                                        <div className="text-xs text-muted-foreground mt-0.5">{contactsError}</div>
+                                    </div>
+                                ) : contactsLoading && contactsList.length === 0 ? (
+                                    <div className="p-6 flex items-center justify-center text-xs text-muted-foreground gap-2">
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        Loading contacts
+                                    </div>
+                                ) : contactsList.length === 0 ? (
+                                    <div className="p-6 text-center text-xs text-muted-foreground flex flex-col items-center gap-2">
+                                        <Users className="w-8 h-8 text-muted-foreground/40" />
+                                        <span>No contacts found</span>
+                                    </div>
+                                ) : (
+                                    contactsList.map(contact => {
+                                        const active = contact.id === selectedContactId
+                                        return (
+                                            <button
+                                                key={contact.id}
+                                                type="button"
+                                                onClick={() => setSelectedContactId(contact.id)}
+                                                className={`w-full rounded-xl border p-3 text-left transition-all ${
+                                                    active
+                                                        ? "border-primary/40 bg-primary/5"
+                                                        : "border-border/60 bg-background/50 hover:bg-muted/40"
+                                                }`}
+                                            >
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <div className="min-w-0">
+                                                        <div className="truncate text-sm font-semibold text-foreground">
+                                                            {contactDisplayName(contact)}
+                                                        </div>
+                                                        <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                                                            {contact.company_name || contact.email || contact.phone || "No details"}
+                                                        </div>
+                                                    </div>
+                                                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 capitalize shrink-0">
+                                                        {contact.origin || "manual"}
+                                                    </Badge>
+                                                </div>
+                                            </button>
+                                        )
+                                    })
+                                )}
+                            </div>
+                            <div className="border-t border-border/70 p-2">
+                                <div className="flex items-center justify-between gap-2">
+                                    <div className="text-[11px] text-muted-foreground">
+                                        {contactsCount > 0
+                                            ? `${contactRangeStart}-${contactRangeEnd} of ${contactsCount}`
+                                            : "0 contacts"}
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                        <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            className="h-8 w-8 p-0"
+                                            onClick={() => setContactsPage(page => Math.max(1, page - 1))}
+                                            disabled={contactsLoading || !contactsPrevious || contactsPage <= 1}
+                                            title="Previous contacts page"
+                                        >
+                                            <ChevronLeft className="w-4 h-4" />
+                                        </Button>
+                                        <span className="min-w-14 text-center text-[11px] font-medium text-muted-foreground">
+                                            {contactsPage}/{totalContactPages}
+                                        </span>
+                                        <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            className="h-8 w-8 p-0"
+                                            onClick={() => setContactsPage(page => page + 1)}
+                                            disabled={contactsLoading || !contactsNext || contactsPage >= totalContactPages}
+                                            title="Next contacts page"
+                                        >
+                                            <ChevronRight className="w-4 h-4" />
+                                        </Button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="min-w-0 p-4 space-y-4">
+                            {currentContact ? (
+                                <>
+                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                        <div className="min-w-0">
+                                            <div className="flex items-center gap-2">
+                                                <UserRound className="w-4 h-4 text-primary shrink-0" />
+                                                <h3 className="truncate text-lg font-bold text-foreground">
+                                                    {contactDisplayName(currentContact)}
+                                                </h3>
+                                            </div>
+                                            <div className="mt-1 flex flex-wrap gap-1.5">
+                                                <Badge variant="outline" className="text-[10px] capitalize">
+                                                    {originLabel}
+                                                </Badge>
+                                                {currentContact.source_name && (
+                                                    <Badge variant="outline" className="text-[10px]">
+                                                        {currentContact.source_name}
+                                                    </Badge>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <Button
+                                            size="sm"
+                                            className="h-9 gap-1.5 text-xs shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white"
+                                            onClick={() => void dial(selectedPhone)}
+                                            disabled={!selectedPhone || isDialing || status !== "online" || !!activeCall || !!incomingCall}
+                                        >
+                                            <Phone className="w-3.5 h-3.5" />
+                                            Call
+                                        </Button>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                        {renderLookupDetail("Phone", currentContact.phone, <Phone className="w-3 h-3" />)}
+                                        {renderLookupDetail("Email", currentContact.email, <Mail className="w-3 h-3" />)}
+                                        {renderLookupDetail("Company", currentContact.company_name, <Building2 className="w-3 h-3" />)}
+                                        {renderLookupDetail("ATS ID", currentContact.external_id || currentContact.candidate_id)}
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                                <History className="w-3.5 h-3.5" />
+                                                Call history
+                                            </div>
+                                            {contactCallsLoading && (
+                                                <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                                            )}
+                                        </div>
+
+                                        {contactCalls.length === 0 && !contactCallsLoading ? (
+                                            <div className="rounded-xl border border-border/60 bg-muted/25 p-5 text-center text-xs text-muted-foreground">
+                                                No calls for this contact
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-1.5">
+                                                {contactCalls.map(call => {
+                                                    const isMissed = call.direction === "inbound" && call.status === "missed"
+                                                    return (
+                                                        <div
+                                                            key={call.uid}
+                                                            className={`rounded-xl border p-3 ${
+                                                                isMissed
+                                                                    ? "border-rose-500/20 bg-rose-500/5"
+                                                                    : "border-border/60 bg-background/50"
+                                                            }`}
+                                                        >
+                                                            <div className="flex items-start justify-between gap-3">
+                                                                <div className="min-w-0">
+                                                                    <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                                                                        {call.direction === "inbound" ? (
+                                                                            <PhoneIncoming className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                                                                        ) : (
+                                                                            <PhoneOutgoing className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                                                                        )}
+                                                                        <span className="truncate">{call.number}</span>
+                                                                    </div>
+                                                                    <div className="mt-1 text-[11px] text-muted-foreground truncate">
+                                                                        {new Date(call.started_at).toLocaleString()} · {call.status.replace("_", " ")}
+                                                                        {call.handled_by ? ` · ${call.handled_by}` : ""}
+                                                                    </div>
+                                                                </div>
+                                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                                    {call.has_voicemail && (
+                                                                        <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30 text-[10px]">
+                                                                            voicemail
+                                                                        </Badge>
+                                                                    )}
+                                                                    <span className="font-mono text-[11px] text-muted-foreground">
+                                                                        {mmss(call.duration || 0)}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    )
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="min-h-[320px] rounded-xl border border-dashed border-border/70 bg-muted/20 p-8 text-center text-sm text-muted-foreground flex flex-col items-center justify-center gap-2">
+                                    <Users className="w-10 h-10 text-muted-foreground/40" />
+                                    <span>Select or create a contact</span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
+        )
+    }
 
     return (
         <div className="flex-1 overflow-y-auto bg-background p-4 md:p-8 min-h-screen text-foreground font-sans">
-            <div className="max-w-xl mx-auto space-y-4">
+            <div className="w-full max-w-7xl mx-auto space-y-4">
                 {/* Back link */}
                 <div>
                     <Button
@@ -1443,6 +2663,35 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                     </Button>
                 </div>
 
+                <div className="xl:hidden grid grid-cols-2 gap-1 rounded-xl border border-border/60 bg-muted/50 p-1">
+                    <button
+                        type="button"
+                        onClick={() => setMobilePanel("phone")}
+                        className={`h-10 rounded-lg inline-flex items-center justify-center gap-2 text-xs font-semibold transition-colors ${
+                            mobilePanel === "phone"
+                                ? "bg-background text-foreground shadow-sm"
+                                : "text-muted-foreground hover:text-foreground"
+                        }`}
+                    >
+                        <Phone className="w-4 h-4" />
+                        Calling
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setMobilePanel("contacts")}
+                        className={`h-10 rounded-lg inline-flex items-center justify-center gap-2 text-xs font-semibold transition-colors ${
+                            mobilePanel === "contacts"
+                                ? "bg-background text-foreground shadow-sm"
+                                : "text-muted-foreground hover:text-foreground"
+                        }`}
+                    >
+                        <Users className="w-4 h-4" />
+                        Contacts
+                    </button>
+                </div>
+
+                <div className="grid grid-cols-1 xl:grid-cols-[minmax(360px,520px)_minmax(0,1fr)] gap-4 items-start">
+                    <div className={`min-w-0 space-y-4 ${mobilePanel === "phone" ? "block" : "hidden"} xl:block`}>
                 {/* Header matching HTML template */}
                 <div className="p-4 rounded-2xl border border-border/70 bg-card shadow-sm space-y-2">
                     <div className="flex items-center justify-between">
@@ -1465,32 +2714,27 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                         </Badge>
                     </div>
 
-                    {micIssue && (
-                        <div role="alert" className="flex items-start justify-between gap-3 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-700 dark:text-rose-300">
-                            <span>{micIssue}</span>
-                            <button type="button" onClick={() => void ensureMic()} className="shrink-0 font-semibold underline underline-offset-2">Test microphone</button>
-                        </div>
-                    )}
-
-                    <div className="flex items-center gap-3 text-xs">
-                        <button type="button" onClick={() => void runDiagnostics()} disabled={diagRunning} className="font-semibold text-blue-600 dark:text-blue-400 underline underline-offset-2 disabled:opacity-60">
-                            {diagRunning ? "Running diagnostics…" : "Run call diagnostics"}
-                        </button>
-                    </div>
-                    {diagLines && diagLines.length > 0 && (
-                        <ul id="voip-diagnostics" className="rounded-xl border border-border/70 bg-muted/40 px-3 py-2 text-xs space-y-1">
-                            {diagLines.map((l, i) => (
-                                <li key={i} className={l.ok ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-300"}>
-                                    {l.ok ? "✓" : "✗"} {l.text}
-                                </li>
-                            ))}
-                        </ul>
-                    )}
-
                     <p className="text-xs text-muted-foreground leading-relaxed">
                         Logged in: <strong className="text-foreground">{userName}</strong> (ext {extension})<br />
                         Main Number: <strong className="text-foreground">{mainNumber}</strong>
                     </p>
+                    {status !== "online" && statusDetail && (
+                        <div className="flex items-center justify-between gap-3" role="status" aria-live="polite">
+                            <p className={`text-xs ${status === "offline" ? "text-rose-600 dark:text-rose-400" : "text-muted-foreground"}`}>
+                                {statusDetail}
+                            </p>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => void connect()}
+                                disabled={status === "connecting" || !!activeCall || !!incomingCall}
+                                className="shrink-0 gap-1.5"
+                            >
+                                <RefreshCw className="w-3.5 h-3.5" />
+                                Retry
+                            </Button>
+                        </div>
+                    )}
                 </div>
 
                 {/* Sound Banner */}
@@ -1507,6 +2751,13 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                     </div>
                 )}
 
+                {callError && (
+                    <div className="p-3 text-xs rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-300 flex items-start gap-2 shadow-sm">
+                        <PhoneOff className="w-4 h-4 shrink-0 mt-0.5" />
+                        <span>{callError}</span>
+                    </div>
+                )}
+
                 {/* Section: Incoming Call */}
                 {incomingCall && (
                     <Card id="incoming" className="border-2 border-emerald-500 bg-emerald-500/5 dark:bg-emerald-950/20 shadow-md animate-pulse">
@@ -1517,6 +2768,8 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                             <div id="incoming-from" className="text-xl font-bold text-foreground truncate">
                                 Incoming call: {incomingCaller || "Unknown"}
                             </div>
+                            {renderCallerLookupPanel()}
+                            <CallerCardPanel phone={callerLookup?.phone} calls={callsList} />
                             <div className="flex gap-2.5 pt-1">
                                 <Button
                                     id="btn-answer"
@@ -1563,6 +2816,8 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                                     {activeStateText}
                                 </Badge>
                             </div>
+                            {renderCallerLookupPanel()}
+                            <CallerCardPanel phone={callerLookup?.phone} calls={callsList} />
 
                             {/* Action Buttons Grid */}
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2">
@@ -1724,17 +2979,19 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                                     value={dialNumber}
                                     onChange={e => setDialNumber(e.target.value)}
                                     onKeyDown={e => {
-                                        if (e.key === "Enter") dial(dialNumber)
+                                        if (e.key === "Enter") void dial(dialNumber)
                                     }}
+                                    disabled={isDialing}
                                 />
                             </div>
                             <Button
                                 id="btn-call"
                                 className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold h-11 px-6 rounded-xl gap-2 shadow-sm shrink-0"
-                                onClick={() => dial(dialNumber)}
+                                onClick={() => void dial(dialNumber)}
+                                disabled={isDialing || status !== "online" || !!activeCall || !!incomingCall}
                             >
-                                <Phone className="w-4 h-4" />
-                                CALL
+                                {isDialing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />}
+                                {isDialing ? "CALLING" : "CALL"}
                             </Button>
                         </div>
                     </CardContent>
@@ -1895,8 +3152,15 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                                                         className={`font-semibold text-xs sm:text-sm truncate hover:underline cursor-pointer flex items-center gap-1.5 ${
                                                             isMissed ? "text-rose-600 dark:text-rose-400" : "text-foreground"
                                                         }`}
-                                                        onClick={() => setDialNumber(c.number)}
-                                                        title="Click to dial number"
+                                                        onClick={() => {
+                                                            if (c.contact_id) {
+                                                                setSelectedContactId(c.contact_id)
+                                                                setMobilePanel("contacts")
+                                                            } else {
+                                                                setDialNumber(c.number)
+                                                            }
+                                                        }}
+                                                        title={c.contact_id ? "Open contact" : "Click to dial number"}
                                                     >
                                                         <span className="truncate">
                                                             {isMissed ? "✖ " : arrow[c.direction] + " "}
@@ -1916,9 +3180,10 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                                             <Button
                                                 variant="ghost"
                                                 size="sm"
-                                                onClick={() => dial(c.number)}
+                                                onClick={() => void dial(c.number)}
                                                 className="h-8 px-2 text-xs text-muted-foreground hover:text-emerald-600 shrink-0"
                                                 title="Call this number"
+                                                disabled={isDialing || status !== "online" || !!activeCall || !!incomingCall}
                                             >
                                                 <Phone className="w-3.5 h-3.5" />
                                             </Button>
@@ -1934,9 +3199,15 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                 <p className="text-center text-[11px] text-muted-foreground/80 py-2">
                     Not for emergency calls: dial 999 from your mobile.
                 </p>
+                    </div>
+
+                    <div className={`min-w-0 ${mobilePanel === "contacts" ? "block" : "hidden"} xl:block xl:sticky xl:top-4`}>
+                        {renderContactsPanel()}
+                    </div>
+                </div>
             </div>
 
-            <audio id="remoteAudio" autoPlay playsInline className="sr-only" />
+            <audio id="remoteAudio" autoPlay playsInline className="fixed -top-full -left-full opacity-0 pointer-events-none w-0 h-0" />
         </div>
     )
 }
