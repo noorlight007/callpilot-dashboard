@@ -37,6 +37,7 @@ import {
     ChevronLeft,
     ChevronRight
 } from "lucide-react"
+import { CallerCardPanel } from "@/components/ops/caller-card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -54,6 +55,7 @@ interface CallItem {
     duration: number;
     handled_by?: string | null;
     has_voicemail?: boolean;
+    caller_card?: any;
 }
 
 interface VoicemailItem {
@@ -2767,6 +2769,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                                 Incoming call: {incomingCaller || "Unknown"}
                             </div>
                             {renderCallerLookupPanel()}
+                            <CallerCardPanel phone={callerLookup?.phone} calls={callsList} />
                             <div className="flex gap-2.5 pt-1">
                                 <Button
                                     id="btn-answer"
@@ -2814,6 +2817,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                                 </Badge>
                             </div>
                             {renderCallerLookupPanel()}
+                            <CallerCardPanel phone={callerLookup?.phone} calls={callsList} />
 
                             {/* Action Buttons Grid */}
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2">
