@@ -949,15 +949,21 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
 
             // Fetch live login_token
             let token: string | null = null
+            let tokenError = ""
             try {
                 const res = await api(cfgRef.current.tokenUrl, { method: "POST" })
                 token = res?.token || res?.login_token || res?.data?.token || res?.jwt || null
+                if (!token) tokenError = "Backend token response had no token"
             } catch (err: any) {
+                tokenError = `Backend token request failed: ${err?.message || err}`
+                console.warn(tokenError)
                 try {
                     const fallbackRes = await fetch("/api/voice/token", { method: "POST" })
+                    const fallbackData = await fallbackRes.json().catch(() => ({}))
                     if (fallbackRes.ok) {
-                        const fallbackData = await fallbackRes.json()
                         token = fallbackData?.token || fallbackData?.login_token || null
+                    } else {
+                        tokenError += ` | Fallback failed: ${fallbackData?.error || "HTTP " + fallbackRes.status}`
                     }
                 } catch (e: any) {
                     console.warn("Fallback token endpoint note:", e)
@@ -1073,7 +1079,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                 client.connect()
             } else {
                 clientReadyRef.current = false
-                throw new Error("Could not get a Telnyx WebRTC login token")
+                throw new Error(tokenError || "Could not get a Telnyx WebRTC login token")
             }
         } catch (e: any) {
             console.error("Telnyx connection error:", e)
