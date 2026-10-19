@@ -5,7 +5,12 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-[ -f .env.deploy ] || { echo "Missing .env.deploy (copy .env.deploy.example)"; exit 1; }
+if [ ! -f .env.deploy ]; then
+  echo "Missing .env.deploy (copy .env.deploy.example and fill it in)."
+  echo "This script runs from your own machine and deploys to the server over SSH."
+  echo "If you are already on the server, run instead: git pull && docker compose up -d --build"
+  exit 1
+fi
 set -a; . ./.env.deploy; set +a
 
 SSH_OPTS="-o StrictHostKeyChecking=accept-new"
