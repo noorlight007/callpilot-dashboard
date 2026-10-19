@@ -3,7 +3,7 @@
 import { LogOut, Sun, Moon, Monitor } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { cookieUtils } from '@/services/auth-service';
+import { authService } from '@/services/auth-service';
 import { profileService } from '@/services/profile-service';
 import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
@@ -47,11 +47,10 @@ export function UserProfilePanel({ onClose }: UserProfilePanelProps) {
     fetchUserData();
   }, []);
 
-  const handleLogout = () => {
-    cookieUtils.set('access', '', -1);
-    cookieUtils.set('refresh', '', -1);
+  const handleLogout = async () => {
+    await authService.logout();
     onClose();
-    router.push('/login');
+    window.location.replace('/login');
   };
 
   useEffect(() => {

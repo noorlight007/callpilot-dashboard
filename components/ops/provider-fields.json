@@ -1,0 +1,2151 @@
+{
+  "verified_on": "2026-10-11",
+  "sections": {
+    "candidates": {
+      "create": {
+        "type": "object",
+        "properties": {
+          "firstName": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "lastName": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "email": {
+            "maxLength": 100,
+            "type": "string",
+            "nullable": true
+          },
+          "phone": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "mobile": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "salutation": {
+            "maxLength": 20,
+            "type": "string",
+            "nullable": true
+          },
+          "statusId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "rating": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "source": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "seeking": {
+            "enum": [
+              "Yes",
+              "Maybe",
+              "No"
+            ],
+            "type": "string",
+            "format": "string"
+          },
+          "unsubscribed": {
+            "type": "boolean"
+          },
+          "dateOfBirth": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "emergencyContact": {
+            "maxLength": 200,
+            "type": "string",
+            "nullable": true
+          },
+          "emergencyPhone": {
+            "maxLength": 40,
+            "type": "string",
+            "nullable": true
+          },
+          "social": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "format": "uri"
+            },
+            "nullable": true
+          },
+          "address": {
+            "type": "object",
+            "properties": {
+              "street": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "nullable": true
+              },
+              "city": {
+                "type": "string",
+                "nullable": true
+              },
+              "state": {
+                "type": "string",
+                "nullable": true
+              },
+              "postalCode": {
+                "type": "string",
+                "nullable": true
+              },
+              "countryCode": {
+                "type": "string",
+                "nullable": true
+              }
+            },
+            "additionalProperties": false
+          },
+          "skillTags": {
+            "maxLength": 100,
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "employment": {
+            "type": "object",
+            "properties": {
+              "current": {
+                "type": "object",
+                "properties": {
+                  "employer": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "position": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "workTypeId": {
+                    "type": "integer",
+                    "format": "int32",
+                    "nullable": true
+                  },
+                  "salary": {
+                    "type": "object",
+                    "properties": {
+                      "ratePer": {
+                        "enum": [
+                          "Hour",
+                          "Day",
+                          "Week",
+                          "Month",
+                          "Year"
+                        ],
+                        "type": "string",
+                        "format": "string"
+                      },
+                      "rate": {
+                        "maximum": 99999999,
+                        "minimum": 0,
+                        "type": "number",
+                        "format": "double"
+                      },
+                      "currency": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              },
+              "ideal": {
+                "type": "object",
+                "properties": {
+                  "position": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "workTypeId": {
+                    "type": "integer",
+                    "format": "int32",
+                    "nullable": true
+                  },
+                  "salary": {
+                    "type": "object",
+                    "properties": {
+                      "ratePer": {
+                        "enum": [
+                          "Hour",
+                          "Day",
+                          "Week",
+                          "Month",
+                          "Year"
+                        ],
+                        "type": "string",
+                        "format": "string"
+                      },
+                      "rateLow": {
+                        "maximum": 999999999999,
+                        "minimum": 0,
+                        "type": "number",
+                        "format": "double"
+                      },
+                      "rateHigh": {
+                        "maximum": 999999999999,
+                        "minimum": 0,
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                      },
+                      "currency": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "other": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "workTypeId": {
+                          "type": "integer",
+                          "format": "int32",
+                          "nullable": true
+                        },
+                        "salary": {
+                          "type": "object",
+                          "properties": {
+                            "ratePer": {
+                              "enum": [
+                                "Hour",
+                                "Day",
+                                "Week",
+                                "Month",
+                                "Year"
+                              ],
+                              "type": "string",
+                              "format": "string"
+                            },
+                            "rateLow": {
+                              "maximum": 999999999999,
+                              "minimum": 0,
+                              "type": "number",
+                              "format": "double"
+                            },
+                            "rateHigh": {
+                              "maximum": 999999999999,
+                              "minimum": 0,
+                              "type": "number",
+                              "format": "double",
+                              "nullable": true
+                            },
+                            "currency": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "nullable": true
+                  }
+                },
+                "additionalProperties": false
+              },
+              "history": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "employer": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "position": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "start": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "end": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "nullable": true
+              }
+            },
+            "additionalProperties": false
+          },
+          "availability": {
+            "type": "object",
+            "properties": {
+              "immediate": {
+                "type": "boolean"
+              },
+              "relative": {
+                "type": "object",
+                "properties": {
+                  "period": {
+                    "type": "integer",
+                    "format": "int32"
+                  },
+                  "unit": {
+                    "enum": [
+                      "Week",
+                      "Month"
+                    ],
+                    "type": "string",
+                    "format": "string"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "date": {
+                "type": "string",
+                "format": "date",
+                "nullable": true
+              }
+            },
+            "additionalProperties": false
+          },
+          "education": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "institution": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "course": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "date": {
+                  "type": "string",
+                  "nullable": true
+                }
+              },
+              "additionalProperties": false
+            },
+            "nullable": true
+          },
+          "recruiterUserId": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "nullable": true
+          },
+          "customSkills": {
+            "maxLength": 150,
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "required": []
+      },
+      "update": {
+        "type": "object",
+        "properties": {
+          "firstName": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "lastName": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "email": {
+            "maxLength": 100,
+            "type": "string",
+            "nullable": true
+          },
+          "phone": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "mobile": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "salutation": {
+            "maxLength": 20,
+            "type": "string",
+            "nullable": true
+          },
+          "statusId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "rating": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "seeking": {
+            "enum": [
+              "Yes",
+              "Maybe",
+              "No"
+            ],
+            "type": "string",
+            "format": "string"
+          },
+          "unsubscribed": {
+            "type": "boolean"
+          },
+          "dateOfBirth": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "emergencyContact": {
+            "maxLength": 200,
+            "type": "string",
+            "nullable": true
+          },
+          "emergencyPhone": {
+            "maxLength": 40,
+            "type": "string",
+            "nullable": true
+          },
+          "social": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "format": "uri"
+            },
+            "nullable": true
+          },
+          "address": {
+            "type": "object",
+            "properties": {
+              "street": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "nullable": true
+              },
+              "city": {
+                "type": "string",
+                "nullable": true
+              },
+              "state": {
+                "type": "string",
+                "nullable": true
+              },
+              "postalCode": {
+                "type": "string",
+                "nullable": true
+              },
+              "countryCode": {
+                "type": "string",
+                "nullable": true
+              }
+            },
+            "additionalProperties": false
+          },
+          "skillTags": {
+            "maxLength": 100,
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "employment": {
+            "type": "object",
+            "properties": {
+              "current": {
+                "type": "object",
+                "properties": {
+                  "employer": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "position": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "workTypeId": {
+                    "type": "integer",
+                    "format": "int32",
+                    "nullable": true
+                  },
+                  "salary": {
+                    "type": "object",
+                    "properties": {
+                      "ratePer": {
+                        "enum": [
+                          "Hour",
+                          "Day",
+                          "Week",
+                          "Month",
+                          "Year"
+                        ],
+                        "type": "string",
+                        "format": "string"
+                      },
+                      "rate": {
+                        "maximum": 99999999,
+                        "minimum": 0,
+                        "type": "number",
+                        "format": "double"
+                      },
+                      "currency": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              },
+              "ideal": {
+                "type": "object",
+                "properties": {
+                  "position": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "workTypeId": {
+                    "type": "integer",
+                    "format": "int32",
+                    "nullable": true
+                  },
+                  "salary": {
+                    "type": "object",
+                    "properties": {
+                      "ratePer": {
+                        "enum": [
+                          "Hour",
+                          "Day",
+                          "Week",
+                          "Month",
+                          "Year"
+                        ],
+                        "type": "string",
+                        "format": "string"
+                      },
+                      "rateLow": {
+                        "maximum": 999999999999,
+                        "minimum": 0,
+                        "type": "number",
+                        "format": "double"
+                      },
+                      "rateHigh": {
+                        "maximum": 999999999999,
+                        "minimum": 0,
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                      },
+                      "currency": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "other": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "workTypeId": {
+                          "type": "integer",
+                          "format": "int32",
+                          "nullable": true
+                        },
+                        "salary": {
+                          "type": "object",
+                          "properties": {
+                            "ratePer": {
+                              "enum": [
+                                "Hour",
+                                "Day",
+                                "Week",
+                                "Month",
+                                "Year"
+                              ],
+                              "type": "string",
+                              "format": "string"
+                            },
+                            "rateLow": {
+                              "maximum": 999999999999,
+                              "minimum": 0,
+                              "type": "number",
+                              "format": "double"
+                            },
+                            "rateHigh": {
+                              "maximum": 999999999999,
+                              "minimum": 0,
+                              "type": "number",
+                              "format": "double",
+                              "nullable": true
+                            },
+                            "currency": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "nullable": true
+                  }
+                },
+                "additionalProperties": false
+              },
+              "history": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "employer": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "position": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "start": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "end": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "nullable": true
+              }
+            },
+            "additionalProperties": false
+          },
+          "availability": {
+            "type": "object",
+            "properties": {
+              "immediate": {
+                "type": "boolean"
+              },
+              "relative": {
+                "type": "object",
+                "properties": {
+                  "period": {
+                    "type": "integer",
+                    "format": "int32"
+                  },
+                  "unit": {
+                    "enum": [
+                      "Week",
+                      "Month"
+                    ],
+                    "type": "string",
+                    "format": "string"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "date": {
+                "type": "string",
+                "format": "date",
+                "nullable": true
+              }
+            },
+            "additionalProperties": false
+          },
+          "education": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "institution": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "course": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "date": {
+                  "type": "string",
+                  "nullable": true
+                }
+              },
+              "additionalProperties": false
+            },
+            "nullable": true
+          },
+          "recruiterUserId": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "nullable": true
+          },
+          "customSkills": {
+            "maxLength": 150,
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "required": []
+      }
+    },
+    "contacts": {
+      "create": {
+        "type": "object",
+        "properties": {
+          "firstName": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "lastName": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "email": {
+            "maxLength": 100,
+            "type": "string",
+            "nullable": true
+          },
+          "phone": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "mobile": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "salutation": {
+            "maxLength": 20,
+            "type": "string",
+            "nullable": true
+          },
+          "unsubscribed": {
+            "type": "boolean"
+          },
+          "social": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "format": "uri"
+            },
+            "nullable": true
+          },
+          "position": {
+            "type": "string",
+            "nullable": true
+          },
+          "companyId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "reportsToContactId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "officeAddressId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "statusId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "ownerUserId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "recruiterUserId": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "nullable": true
+          },
+          "otherEmail": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "required": []
+      },
+      "update": {
+        "type": "object",
+        "properties": {
+          "firstName": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "lastName": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "email": {
+            "maxLength": 100,
+            "type": "string",
+            "nullable": true
+          },
+          "phone": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "mobile": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "salutation": {
+            "maxLength": 20,
+            "type": "string",
+            "nullable": true
+          },
+          "unsubscribed": {
+            "type": "boolean"
+          },
+          "social": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "format": "uri"
+            },
+            "nullable": true
+          },
+          "position": {
+            "type": "string",
+            "nullable": true
+          },
+          "companyId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "reportsToContactId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "officeAddressId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "statusId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "ownerUserId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "recruiterUserId": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "nullable": true
+          },
+          "otherEmail": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "required": []
+      }
+    },
+    "companies": {
+      "create": {
+        "required": [
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "maxLength": 100,
+            "minLength": 0,
+            "type": "string"
+          },
+          "parentCompanyId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "legalName": {
+            "maxLength": 200,
+            "type": "string",
+            "nullable": true
+          },
+          "social": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "format": "uri"
+            },
+            "nullable": true
+          },
+          "statusId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "ownerUserId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "recruiterUserId": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "update": {
+        "required": [
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "maxLength": 100,
+            "minLength": 0,
+            "type": "string",
+            "nullable": true
+          },
+          "mainContactId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "primaryAddressId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "parentCompanyId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "legalName": {
+            "maxLength": 200,
+            "type": "string",
+            "nullable": true
+          },
+          "social": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "format": "uri"
+            },
+            "nullable": true
+          },
+          "statusId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "ownerUserId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "recruiterUserId": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "jobs": {
+      "create": {
+        "required": [
+          "jobTitle"
+        ],
+        "type": "object",
+        "properties": {
+          "jobTitle": {
+            "maxLength": 100,
+            "type": "string",
+            "nullable": true
+          },
+          "companyId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "contactId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "jobDescription": {
+            "type": "string",
+            "nullable": true
+          },
+          "statusId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "userFavourite": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "category": {
+            "required": [
+              "categoryId"
+            ],
+            "type": "object",
+            "properties": {
+              "categoryId": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "subCategoryId": {
+                "type": "integer",
+                "format": "int32",
+                "nullable": true
+              }
+            },
+            "additionalProperties": false
+          },
+          "location": {
+            "required": [
+              "locationId"
+            ],
+            "type": "object",
+            "properties": {
+              "locationId": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "areaId": {
+                "type": "integer",
+                "format": "int32",
+                "nullable": true
+              }
+            },
+            "additionalProperties": false
+          },
+          "workplaceAddressId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "start": {
+            "type": "object",
+            "properties": {
+              "immediate": {
+                "type": "boolean"
+              },
+              "relative": {
+                "type": "object",
+                "properties": {
+                  "period": {
+                    "type": "integer",
+                    "format": "int32"
+                  },
+                  "unit": {
+                    "enum": [
+                      "Week",
+                      "Month"
+                    ],
+                    "type": "string",
+                    "format": "string"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "date": {
+                "type": "string",
+                "format": "date",
+                "nullable": true
+              }
+            },
+            "additionalProperties": false
+          },
+          "duration": {
+            "type": "object",
+            "properties": {
+              "period": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "unit": {
+                "enum": [
+                  "Hour",
+                  "Day",
+                  "Week",
+                  "Month"
+                ],
+                "type": "string",
+                "format": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "workTypeId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "salary": {
+            "type": "object",
+            "properties": {
+              "ratePer": {
+                "enum": [
+                  "Hour",
+                  "Day",
+                  "Week",
+                  "Month",
+                  "Year"
+                ],
+                "type": "string",
+                "format": "string"
+              },
+              "rateLow": {
+                "maximum": 999999999999,
+                "minimum": 0,
+                "type": "number",
+                "format": "double"
+              },
+              "rateHigh": {
+                "maximum": 999999999999,
+                "minimum": 0,
+                "type": "number",
+                "format": "double",
+                "nullable": true
+              },
+              "currency": {
+                "type": "string",
+                "nullable": true
+              },
+              "timePerWeek": {
+                "type": "number",
+                "format": "double",
+                "nullable": true
+              }
+            },
+            "additionalProperties": false
+          },
+          "fee": {
+            "type": "object",
+            "properties": {
+              "rateType": {
+                "enum": [
+                  "Percent",
+                  "Fixed",
+                  "Margin"
+                ],
+                "type": "string",
+                "format": "string"
+              },
+              "rate": {
+                "type": "number",
+                "format": "double"
+              },
+              "estimatedTotal": {
+                "type": "number",
+                "format": "double"
+              }
+            },
+            "additionalProperties": false
+          },
+          "numberOfJobs": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "source": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "skillTags": {
+            "type": "object",
+            "properties": {
+              "matchAll": {
+                "type": "boolean"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "nullable": true
+              }
+            },
+            "additionalProperties": false
+          },
+          "ownerUserId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "recruiterUserId": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "nullable": true
+          },
+          "workflowId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "workShift": {
+            "type": "object",
+            "properties": {
+              "startTime": {
+                "type": "string",
+                "nullable": true
+              },
+              "endTime": {
+                "type": "string",
+                "nullable": true
+              },
+              "workDays": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "nullable": true
+              }
+            },
+            "additionalProperties": false
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "update": {
+        "required": [
+          "jobTitle"
+        ],
+        "type": "object",
+        "properties": {
+          "jobTitle": {
+            "maxLength": 100,
+            "type": "string",
+            "nullable": true
+          },
+          "companyId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "contactId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "jobDescription": {
+            "type": "string",
+            "nullable": true
+          },
+          "statusId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "userFavourite": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "category": {
+            "required": [
+              "categoryId"
+            ],
+            "type": "object",
+            "properties": {
+              "categoryId": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "subCategoryId": {
+                "type": "integer",
+                "format": "int32",
+                "nullable": true
+              }
+            },
+            "additionalProperties": false
+          },
+          "location": {
+            "required": [
+              "locationId"
+            ],
+            "type": "object",
+            "properties": {
+              "locationId": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "areaId": {
+                "type": "integer",
+                "format": "int32",
+                "nullable": true
+              }
+            },
+            "additionalProperties": false
+          },
+          "workplaceAddressId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "start": {
+            "type": "object",
+            "properties": {
+              "immediate": {
+                "type": "boolean"
+              },
+              "relative": {
+                "type": "object",
+                "properties": {
+                  "period": {
+                    "type": "integer",
+                    "format": "int32"
+                  },
+                  "unit": {
+                    "enum": [
+                      "Week",
+                      "Month"
+                    ],
+                    "type": "string",
+                    "format": "string"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "date": {
+                "type": "string",
+                "format": "date",
+                "nullable": true
+              }
+            },
+            "additionalProperties": false
+          },
+          "duration": {
+            "type": "object",
+            "properties": {
+              "period": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "unit": {
+                "enum": [
+                  "Hour",
+                  "Day",
+                  "Week",
+                  "Month"
+                ],
+                "type": "string",
+                "format": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "workTypeId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "salary": {
+            "type": "object",
+            "properties": {
+              "ratePer": {
+                "enum": [
+                  "Hour",
+                  "Day",
+                  "Week",
+                  "Month",
+                  "Year"
+                ],
+                "type": "string",
+                "format": "string"
+              },
+              "rateLow": {
+                "maximum": 999999999999,
+                "minimum": 0,
+                "type": "number",
+                "format": "double"
+              },
+              "rateHigh": {
+                "maximum": 999999999999,
+                "minimum": 0,
+                "type": "number",
+                "format": "double",
+                "nullable": true
+              },
+              "currency": {
+                "type": "string",
+                "nullable": true
+              },
+              "timePerWeek": {
+                "type": "number",
+                "format": "double",
+                "nullable": true
+              }
+            },
+            "additionalProperties": false
+          },
+          "fee": {
+            "type": "object",
+            "properties": {
+              "rateType": {
+                "enum": [
+                  "Percent",
+                  "Fixed",
+                  "Margin"
+                ],
+                "type": "string",
+                "format": "string"
+              },
+              "rate": {
+                "type": "number",
+                "format": "double"
+              },
+              "estimatedTotal": {
+                "type": "number",
+                "format": "double"
+              }
+            },
+            "additionalProperties": false
+          },
+          "numberOfJobs": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "source": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "skillTags": {
+            "type": "object",
+            "properties": {
+              "matchAll": {
+                "type": "boolean"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "nullable": true
+              }
+            },
+            "additionalProperties": false
+          },
+          "ownerUserId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "recruiterUserId": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "nullable": true
+          },
+          "workflowId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "workShift": {
+            "type": "object",
+            "properties": {
+              "startTime": {
+                "type": "string",
+                "nullable": true
+              },
+              "endTime": {
+                "type": "string",
+                "nullable": true
+              },
+              "workDays": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "nullable": true
+              }
+            },
+            "additionalProperties": false
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "placements": {
+      "update": {
+        "required": [
+          "jobTitle"
+        ],
+        "type": "object",
+        "properties": {
+          "jobTitle": {
+            "maxLength": 100,
+            "minLength": 0,
+            "type": "string",
+            "nullable": true
+          },
+          "contactId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "statusId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "paymentType": {
+            "maxLength": 50,
+            "minLength": 0,
+            "type": "string",
+            "nullable": true
+          },
+          "startDate": {
+            "type": "string",
+            "properties": {
+              "timeOfDay": {
+                "format": "time"
+              }
+            },
+            "format": "date"
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "salary": {
+            "type": "object",
+            "properties": {
+              "base": {
+                "type": "number",
+                "format": "double"
+              },
+              "superannuation": {
+                "type": "number",
+                "format": "double"
+              },
+              "total": {
+                "type": "number",
+                "format": "double"
+              },
+              "fee": {
+                "type": "number",
+                "format": "double"
+              }
+            },
+            "additionalProperties": false
+          },
+          "contractRate": {
+            "type": "object",
+            "properties": {
+              "ratePer": {
+                "enum": [
+                  "Hour",
+                  "Day"
+                ],
+                "type": "string",
+                "format": "string"
+              },
+              "hoursPerWeek": {
+                "type": "number",
+                "format": "double"
+              },
+              "daysPerWeek": {
+                "type": "number",
+                "format": "double"
+              },
+              "clientRate": {
+                "type": "number",
+                "format": "double"
+              },
+              "candidateRate": {
+                "type": "number",
+                "format": "double"
+              },
+              "onCostsType": {
+                "enum": [
+                  "Fixed",
+                  "Percent"
+                ],
+                "type": "string",
+                "format": "string"
+              },
+              "onCosts": {
+                "type": "number",
+                "format": "double"
+              },
+              "netMargin": {
+                "type": "number",
+                "format": "double"
+              }
+            },
+            "additionalProperties": false
+          },
+          "award": {
+            "maxLength": 100,
+            "minLength": 0,
+            "type": "string",
+            "nullable": true
+          },
+          "industryCode": {
+            "maxLength": 100,
+            "minLength": 0,
+            "type": "string",
+            "nullable": true
+          },
+          "billing": {
+            "type": "object",
+            "properties": {
+              "contactId": {
+                "type": "integer",
+                "format": "int32",
+                "nullable": true
+              },
+              "addressId": {
+                "type": "string",
+                "format": "uuid",
+                "nullable": true
+              },
+              "email": {
+                "maxLength": 200,
+                "minLength": 0,
+                "type": "string",
+                "nullable": true
+              },
+              "orderRef": {
+                "maxLength": 50,
+                "minLength": 0,
+                "type": "string",
+                "nullable": true
+              },
+              "invoiceRef": {
+                "maxLength": 50,
+                "minLength": 0,
+                "type": "string",
+                "nullable": true
+              },
+              "terms": {
+                "maxLength": 100,
+                "minLength": 0,
+                "type": "string",
+                "nullable": true
+              },
+              "dueDate": {
+                "type": "string",
+                "format": "date",
+                "nullable": true
+              }
+            },
+            "additionalProperties": false
+          },
+          "feeSplit": {
+            "enum": [
+              "Fixed",
+              "Percent"
+            ],
+            "type": "string",
+            "format": "string"
+          },
+          "recruiters": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "userId": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "feeSplit": {
+                  "type": "number",
+                  "format": "double",
+                  "nullable": true
+                }
+              },
+              "additionalProperties": false
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "notes": {
+      "create": {
+        "required": [
+          "text",
+          "type"
+        ],
+        "type": "object",
+        "properties": {
+          "type": {
+            "maxLength": 50,
+            "minLength": 1,
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 65535,
+            "minLength": 1,
+            "type": "string"
+          },
+          "jobId": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "nullable": true
+          },
+          "requisitionId": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "nullable": true
+          },
+          "candidateId": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "nullable": true
+          },
+          "applicationId": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "nullable": true
+          },
+          "placementId": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "nullable": true
+          },
+          "companyId": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "nullable": true
+          },
+          "contactId": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "nullable": true
+          },
+          "reference": {
+            "maxLength": 200,
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "update": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "nullable": true
+          },
+          "text": {
+            "maxLength": 65535,
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "required": []
+      }
+    },
+    "tasks": {
+      "create": {
+        "required": [
+          "title",
+          "assignees"
+        ],
+        "type": "object",
+        "properties": {
+          "title": {
+            "maxLength": 200,
+            "type": "string",
+            "nullable": true
+          },
+          "startAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "endAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "allDay": {
+            "type": "boolean"
+          },
+          "assignees": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "nullable": true
+          },
+          "priority": {
+            "maximum": 3,
+            "minimum": 0,
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
+      "update": {
+        "required": [
+          "title",
+          "assignees"
+        ],
+        "type": "object",
+        "properties": {
+          "title": {
+            "maxLength": 200,
+            "type": "string",
+            "nullable": true
+          },
+          "startAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "endAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "allDay": {
+            "type": "boolean"
+          },
+          "assignees": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "nullable": true
+          },
+          "priority": {
+            "maximum": 3,
+            "minimum": 0,
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "jobads": {
+      "create": {
+        "required": [
+          "ownerUserId",
+          "title"
+        ],
+        "type": "object",
+        "properties": {
+          "title": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "reference": {
+            "maxLength": 20,
+            "type": "string",
+            "nullable": true
+          },
+          "bulletPoints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "jobId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "ownerUserId": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "update": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "maxLength": 80,
+            "type": "string",
+            "nullable": true
+          },
+          "reference": {
+            "maxLength": 20,
+            "type": "string",
+            "nullable": true
+          },
+          "bulletPoints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "jobId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "ownerUserId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          }
+        },
+        "required": []
+      }
+    },
+    "folders": {
+      "create": {
+        "required": [
+          "folderName",
+          "ownerID"
+        ],
+        "type": "object",
+        "properties": {
+          "folderName": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          "ownerID": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "applications": {
+      "update": {
+        "type": "object",
+        "properties": {
+          "statusId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "rating": {
+            "maximum": 10,
+            "minimum": 0,
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false,
+        "required": []
+      }
+    }
+  },
+  "source": "pilot/jobadder_schema.json",
+  "reference_paths": [
+    "jobs/fields/custom",
+    "jobs/lists/attachmentcategory",
+    "jobs/lists/notetype",
+    "jobs/lists/source",
+    "jobs/lists/status",
+    "candidates/fields/custom",
+    "candidates/lists/attachmentcategory",
+    "candidates/lists/notetype",
+    "candidates/lists/rating",
+    "candidates/lists/salutation",
+    "candidates/lists/source",
+    "candidates/lists/status",
+    "applications/fields/custom",
+    "applications/lists/status",
+    "applications/lists/workflow",
+    "applications/lists/workflows",
+    "placements/fields/custom",
+    "placements/lists/attachmentcategory",
+    "placements/lists/awards",
+    "placements/lists/billingterms",
+    "placements/lists/industrycodes",
+    "placements/lists/notetype",
+    "placements/lists/paymenttypes",
+    "placements/lists/status",
+    "companies/fields/custom",
+    "companies/lists/attachmentcategory",
+    "companies/lists/notetype",
+    "companies/lists/status",
+    "contacts/fields/custom",
+    "contacts/lists/attachmentcategory",
+    "contacts/lists/notetype",
+    "contacts/lists/salutation",
+    "contacts/lists/status",
+    "categories",
+    "countries",
+    "locations",
+    "worktypes"
+  ],
+  "attachment_types": {
+    "jobs": [
+      "Other",
+      "JobDescription"
+    ],
+    "candidates": [
+      "Other",
+      "Resume",
+      "FormattedResume",
+      "CoverLetter",
+      "Screening",
+      "Check",
+      "Reference",
+      "License"
+    ],
+    "applications": [
+      "Other",
+      "Resume",
+      "FormattedResume",
+      "CoverLetter",
+      "Screening",
+      "Check",
+      "Reference",
+      "License"
+    ],
+    "placements": [
+      "Other",
+      "Resume",
+      "FormattedResume",
+      "CoverLetter",
+      "Screening",
+      "Check",
+      "Reference",
+      "License",
+      "Terms",
+      "CompanyTerms",
+      "StandardTerms"
+    ],
+    "companies": [
+      "Other",
+      "Terms"
+    ],
+    "contacts": [
+      "Other",
+      "Terms"
+    ]
+  }
+}

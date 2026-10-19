@@ -1,8 +1,9 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.callpilot.pro/api/v1";
+import { BASE_URL } from "@/lib/baseUrl";
+const API_BASE_URL = BASE_URL;
 
 export const authService = {
     async login(formData: any) {
-        const response = await fetch(`${API_BASE_URL}/token`, {
+        const response = await fetch("/api/session/login", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(formData),
@@ -10,31 +11,26 @@ export const authService = {
         return response;
     },
 
-    async verifyOtp(otp: string) {
-        const response = await fetch(`${API_BASE_URL}/token/verify-otp`, {
+    async verifyOtp(challengeId: string, otp: string) {
+        const response = await fetch("/api/session/otp", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ otp_code: otp }),
+            body: JSON.stringify({ challenge_id: challengeId, otp_code: otp }),
         });
         return response;
     },
 
-    async verifyToken(accessToken: string) {
-        const response = await fetch(`${API_BASE_URL}/token/verify`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ token: accessToken }),
-        });
-        return response;
+    async verifyToken(_accessToken?: string) {
+        return fetch("/api/session", { cache: "no-store" });
     },
 
-    async refreshToken(refreshTokenStr: string) {
-        const response = await fetch(`${API_BASE_URL}/token/refresh`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ refresh: refreshTokenStr }),
-        });
-        return response;
+    async refreshToken(_refreshToken?: string) {
+        return fetch("/api/session", { method: "POST", cache: "no-store" });
+    },
+
+    async logout() {
+        window.dispatchEvent(new Event("callpilot:session-clear"));
+        await fetch("/api/session", { method: "DELETE" });
     },
 
     async forgotPassword(email: string) {
@@ -65,23 +61,25 @@ export const authService = {
     },
 };
 
-// Cookie Helpers
+/** Compatibility for the legacy dashboard. The readable flag contains no JWT. */
 export const cookieUtils = {
     set(name: string, value: string, days: number) {
-        const d = new Date();
-        d.setTime(d.getTime() + days * 24 * 60 * 60 * 1000);
-        const expires = "expires=" + d.toUTCString();
-        document.cookie = `${name}=${value};${expires};path=/`;
-    },
-
-    get(name: string) {
-        const nameEq = name + "=";
-        const ca = document.cookie.split(";");
-        for (let i = 0; i < ca.length; i++) {
-            let c = ca[i];
-            while (c.charAt(0) === " ") c = c.substring(1, c.length);
-            if (c.indexOf(nameEq) === 0) return c.substring(nameEq.length, c.length);
+        if (name === "access" || name === "refresh") {
+            // Authentication cookies are written only by /api/session on the server.
+            if (days < 0 || value === "") {
+                document.cookie = "cp_session=;Max-Age=0;path=/;SameSite=Lax";
+                document.cookie = `${name}=;Max-Age=0;path=/;SameSite=Lax`;
+            }
+            return;
         }
-        return null;
-    }
+        const secure = location.protocol === "https:" ? ";Secure" : "";
+        document.cookie = `${name}=${encodeURIComponent(value)};Max-Age=${days * 86400};path=/;SameSite=Lax${secure}`;
+    },
+    get(name: string) {
+        if (typeof document === "undefined") return null;
+        const session = name === "access" || name === "refresh";
+        const key = session ? "cp_session" : name;
+        const raw = document.cookie.split(";").map(c => c.trim()).find(c => c.startsWith(`${key}=`));
+        return raw ? session ? "session" : decodeURIComponent(raw.slice(key.length + 1)) : null;
+    },
 };

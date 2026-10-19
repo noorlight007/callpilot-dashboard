@@ -39,44 +39,15 @@ export default function ActivationPage() {
 
     useEffect(() => {
         const checkAuth = async () => {
-            const accessToken = cookieUtils.get('access');
-            const refreshToken = cookieUtils.get('refresh');
-
-            if (!accessToken || !refreshToken) {
-                router.push('/login');
-                return;
-            }
-
             try {
-                const verifyRes = await authService.verifyToken(accessToken);
-                if (verifyRes.ok) {
-                    const statusRes = await profileService.getPlatformStatus();
-                    const complianceStatus = statusRes.data.compliance_status;
-                    if (complianceStatus !== "" && complianceStatus !== null && complianceStatus !== "rejected") {
-                        router.push('/dashboard');
-                        return;
-                    }
-                    setIsAuthenticated(true);
-                } else {
-                    const refreshRes = await authService.refreshToken(refreshToken);
-                    if (refreshRes.ok) {
-                        const data = await refreshRes.json();
-                        cookieUtils.set('access', data.access, 7);
-                        cookieUtils.set('refresh', data.refresh, 7);
-
-                        const statusRes = await profileService.getPlatformStatus();
-                        const complianceStatus = statusRes.data.compliance_status;
-                        if (complianceStatus !== "" && complianceStatus !== null && complianceStatus !== "rejected") {
-                            router.push('/dashboard');
-                            return;
-                        }
-                        setIsAuthenticated(true);
-                    } else {
-                        router.push('/login');
-                    }
-                }
-            } catch (err) {
-                router.push('/login');
+                const session = await authService.verifyToken();
+                if (!session.ok) { router.replace('/login'); return; }
+                const statusRes = await profileService.getPlatformStatus();
+                const complianceStatus = statusRes.data.compliance_status;
+                if (complianceStatus && complianceStatus !== "rejected") { router.replace('/dashboard'); return; }
+                setIsAuthenticated(true);
+            } catch {
+                router.replace('/login');
             }
         };
 
@@ -1650,8 +1621,7 @@ export default function ActivationPage() {
     };
 
     const handleLogout = () => {
-        cookieUtils.set('access', '', -1);
-        cookieUtils.set('refresh', '', -1);
+        void authService.logout().then(() => window.location.replace('/login'));
         setIsLogoutDialogOpen(false);
         router.push('/login');
     };

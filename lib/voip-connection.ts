@@ -129,20 +129,7 @@ export const fetchTelnyxToken = async (tokenUrl: string, options: RequestInit): 
         }
     }
 
-    try {
-        return await requestToken(tokenUrl, options)
-    } catch (error) {
-        if (options.signal?.aborted) throw error
-        // These errors require the user's own extension/session to be fixed.
-        // Creating a different credential through the fallback cannot fix them.
-        if (error instanceof VoiceTokenError && [401, 403, 409].includes(error.status)) throw error
-        try {
-            return await requestToken("/api/voice/token", { signal: options.signal })
-        } catch (fallbackError) {
-            if (options.signal?.aborted) throw fallbackError
-            const primaryMessage = error instanceof Error ? error.message : "Phone login failed"
-            const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : "Backup login failed"
-            throw new Error(`${primaryMessage}. ${fallbackMessage}`)
-        }
-    }
+    // The authenticated Django service chooses this user's extension. Do not
+    // mint a separate provider credential when that service rejects the request.
+    return await requestToken(tokenUrl, options)
 }

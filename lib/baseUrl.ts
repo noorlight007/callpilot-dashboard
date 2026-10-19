@@ -1,1 +1,2 @@
-export const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.callpilot.pro/api/v1";
+/** Browser requests use the same-origin session proxy; JWTs never enter JavaScript. */
+export const BASE_URL = "/api/backend";

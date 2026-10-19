@@ -30,8 +30,8 @@ export const profileService = {
         return api.patch("/me/", data);
     },
 
-    async getOrganization() {
-        return api.get("/organizations/me");
+    async getOrganization(options?: { signal?: AbortSignal }) {
+        return api.get("/organizations/me", options);
     },
 
     async updateOrganization(data: any) {
@@ -43,7 +43,12 @@ export const profileService = {
     },
 
     async switchOrganization(uid: string) {
-        return api.put(`/organizations/switch/${uid}`);
+        window.dispatchEvent(new Event("callpilot:tenant-changing"));
+        try {
+            return await api.put(`/organizations/switch/${uid}`);
+        } finally {
+            window.dispatchEvent(new Event("callpilot:tenant-changed"));
+        }
     },
 
     async getSupportTickets() {
