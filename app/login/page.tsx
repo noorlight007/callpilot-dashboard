@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { authService } from "@/services/auth-service";
 import { profileService } from "@/services/profile-service";
+import { signInReturnPath } from "@/lib/ops/jobadder-auth";
 
 export default function SignInPage() {
     const router = useRouter();
@@ -43,7 +44,8 @@ export default function SignInPage() {
     const redirectAfterSignIn = async () => {
         const statusRes = await profileService.getPlatformStatus();
         const status = statusRes.data.compliance_status;
-        router.replace(status && status !== "rejected" ? "/dashboard" : "/activation");
+        const next = signInReturnPath(new URLSearchParams(window.location.search).get("next"), window.location.origin);
+        router.replace(status && status !== "rejected" ? next ?? "/dashboard" : "/activation");
     };
     useEffect(() => {
         let live = true;

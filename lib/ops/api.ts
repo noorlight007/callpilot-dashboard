@@ -9,9 +9,7 @@ export class ApiError extends Error {
     this.status = status;
     this.detail = detail;
   }
-  get mfaRequired() {
-    return this.status === 403 && /mfa|otp|multi.?factor/i.test(JSON.stringify(this.detail ?? ""));
-  }
+
 }
 
 export function apiErrorMessage(status: number, detail: any): string {

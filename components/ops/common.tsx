@@ -45,13 +45,12 @@ function hint(e: unknown): string | null {
 export function ErrorNotice({ error }: { error: unknown }) {
   if (!error) return null;
   const e = error as any;
-  const mfa = e instanceof ApiError && e.mfaRequired;
   return (
     <div role="alert" className="flex gap-2 rounded-lg border border-red-200 bg-red-50 dark:bg-red-950/30 dark:border-red-900 p-3 text-sm text-red-800 dark:text-red-300">
       <AlertCircle size={16} className="mt-0.5 shrink-0" />
       <div className="whitespace-pre-wrap">
-        {mfa ? <>This action needs a fresh OTP-verified sign-in. <a className="underline" href="/login?reauth=1">Sign in with a new code</a>.</> : e?.message ?? "Something went wrong"}
-        {!mfa && hint(e) && <div className="mt-1 text-xs opacity-80">{hint(e)}</div>}
+        {e?.message ?? "Something went wrong"}
+        {hint(e) && <div className="mt-1 text-xs opacity-80">{hint(e)}</div>}
       </div>
     </div>
   );
