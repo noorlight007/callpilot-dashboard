@@ -1,16 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: process.env.NEXT_OUTPUT === 'standalone' ? 'standalone' : undefined,
-  typescript: {
-    ignoreBuildErrors: true,
-  },
+  skipTrailingSlashRedirect: true,
   images: {
     unoptimized: true,
-  },
-  devIndicators: {
-    appIsrStatus: false,
-    buildActivity: false,
-    staticIndicator: false,
   },
   async headers() {
     return [
@@ -18,7 +11,7 @@ const nextConfig = {
         // every page, but not /_next/static assets or files with an extension
         source: "/((?!_next/static|_next/image|.*\\.[a-zA-Z0-9]+$).*)",
         headers: [
-          { key: "Cache-Control", value: "public, max-age=0, s-maxage=300, stale-while-revalidate=60" },
+          { key: "Cache-Control", value: "private, no-store" },
         ],
       },
       {

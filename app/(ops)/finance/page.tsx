@@ -1,57 +1,67 @@
 "use client";
 
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ErrorNotice, Json, Loading, PageHeader } from "@/components/ops/common";
+import { Badge, Empty, ErrorNotice, Json, Loading, PageHeader } from "@/components/ops/common";
 import { Require } from "@/components/ops/shell";
 import { listOf, useOpsFetch } from "@/lib/ops/hooks";
+import { useOps } from "@/lib/ops/session";
 import { ops } from "@/lib/ops/paths";
 import { enc } from "@/lib/ops/api";
 
 export default function FinancePage() {
-  // Require owner so no finance request is made for anyone else.
-  return <Require perm="finance"><Inner /></Require>;
+  const { epoch } = useOps();
+  return <Require owner perm="finance"><FinanceWorkspace key={epoch} /></Require>;
 }
 
-function Inner() {
+function FinanceWorkspace() {
   const caps = useOpsFetch(ops("finance/capabilities/"));
-  const sources: any[] = listOf(caps.data?.sources ?? caps.data);
+  const sources = listOf(caps.data);
   const [src, setSrc] = useState("");
-  const [res, setRes] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const resources: string[] = (sources.find((s) => String(s.id ?? s.connector_id) === src)?.resources ?? []).map((r: any) => (typeof r === "string" ? r : r.name ?? r.id));
-  const data = useOpsFetch(src && res ? ops(`finance/${enc(src)}/${enc(res)}/`) : null, { query: { from: from || undefined, to: to || undefined } });
+  const [resource, setResource] = useState("");
+  const [filters, setFilters] = useState<{ name: string; value: string }[]>([]);
+  const [request, setRequest] = useState<{ source: string; resource: string; query: Record<string, string> } | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const source = sources.find((s) => String(s.id) === src);
+  const resources = listOf(source?.resources);
+  const data = useOpsFetch(request ? ops(`finance/${enc(request.source)}/${enc(request.resource)}/`) : null, { query: request?.query });
   const invoices = useOpsFetch(ops("finance/invoices/"));
   return (
     <div className="space-y-6">
-      <PageHeader title="Finance" description="Unmodified source data. Currency and precision are shown as returned." />
+      <PageHeader title="Finance" description="Read source reports with their original values, currency and precision." />
       <ErrorNotice error={caps.error} />
-      <div className="grid gap-3 sm:grid-cols-4">
-        <div><Label htmlFor="src">Source</Label><select id="src" className="w-full border rounded-md px-2 py-2 text-sm bg-transparent" value={src} onChange={(e) => { setSrc(e.target.value); setRes(""); }}><option value="">Select…</option>{sources.map((s) => <option key={s.id ?? s.connector_id} value={String(s.id ?? s.connector_id)}>{s.name ?? s.id}</option>)}</select></div>
-        <div><Label htmlFor="res">Resource</Label><select id="res" className="w-full border rounded-md px-2 py-2 text-sm bg-transparent" value={res} onChange={(e) => setRes(e.target.value)}><option value="">Select…</option>{resources.map((r) => <option key={r}>{r}</option>)}</select></div>
-        <div><Label htmlFor="from">From</Label><Input id="from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></div>
-        <div><Label htmlFor="to">To</Label><Input id="to" type="date" value={to} onChange={(e) => setTo(e.target.value)} /></div>
-      </div>
-      <ErrorNotice error={data.error} />
-      {data.loading && src && res && !data.data ? <Loading /> : data.data && (<><p className="text-xs text-gray-500">Source: {data.data.source ?? src} · fetched {data.data.fetched_at ?? "—"} · filters {JSON.stringify(data.data.filters ?? { from, to })}</p><Json value={data.data} /></>)}
-      <h2 className="font-semibold text-sm">Supplier invoice queue</h2>
-      <ErrorNotice error={invoices.error} />
-      {invoices.loading && !invoices.data ? <Loading /> : listOf(invoices.data).length === 0 ? <Json value={invoices.data} /> : (
-        <div className="overflow-x-auto border rounded-lg">
-          <table className="w-full text-sm">
-            <caption className="sr-only">Supplier invoices awaiting review</caption>
-            <thead><tr className="text-left border-b">{["Supplier", "Invoice", "Amount", "Currency", "Status", "Received"].map((h) => <th key={h} scope="col" className="p-2 font-medium">{h}</th>)}</tr></thead>
-            <tbody>{listOf(invoices.data).map((i: any, n: number) => (
-              <tr key={i.id ?? n} className="border-b last:border-0">
-                <td className="p-2">{i.supplier ?? i.supplier_name}</td><td className="p-2">{i.number ?? i.reference ?? i.id}</td>
-                {/* amount is displayed exactly as returned: no re-rounding */}
-                <td className="p-2">{String(i.amount ?? i.total ?? "")}</td><td className="p-2">{i.currency}</td><td className="p-2">{i.status}</td><td className="p-2">{i.received_at ?? i.created_at}</td>
-              </tr>))}</tbody>
-          </table>
+      {caps.loading && !caps.data ? <Loading /> : sources.length === 0 ? <Empty>No financial sources are configured.</Empty> : <form className="space-y-3" onSubmit={(event) => {
+        event.preventDefault(); setError(null);
+        if (!source || !resources.some((r) => r.resource === resource)) return;
+        const query: Record<string, string> = {};
+        for (const filter of filters) {
+          const name = filter.name.trim();
+          if (!name || name === "tenant_id" || Object.prototype.hasOwnProperty.call(query, name)) { setError(new Error("Use unique source filter names; tenant_id is managed by your session.")); return; }
+          query[name] = filter.value;
+        }
+        setRequest({ source: src, resource, query });
+      }}>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div><Label htmlFor="src">Source</Label><select id="src" className="w-full border rounded-md px-2 py-2 text-sm bg-transparent" value={src} onChange={(e) => { setSrc(e.target.value); setResource(""); setRequest(null); setFilters([]); }}><option value="">Select…</option>{sources.map((s) => <option key={s.id} value={String(s.id)}>{s.product} ({s.kind}, #{s.id})</option>)}</select></div>
+          <div><Label htmlFor="resource">Available resource</Label><select id="resource" className="w-full border rounded-md px-2 py-2 text-sm bg-transparent" value={resource} onChange={(e) => { setResource(e.target.value); setRequest(null); }}><option value="">Select…</option>{resources.map((r) => <option key={r.resource} value={r.resource}>{r.resource}{r.scope ? ` · ${r.scope}` : ""}</option>)}</select></div>
         </div>
-      )}
+        <fieldset className="space-y-2"><legend className="text-sm font-medium">Source date / query filters</legend>
+          <p className="text-xs text-gray-500">Use the exact parameter names documented by this source, including its date format. CallPilot passes these values through unchanged.</p>
+          {filters.map((filter, index) => <div key={index} className="flex gap-2"><Input aria-label={`Filter ${index + 1} name`} placeholder="Source parameter name" value={filter.name} onChange={(e) => setFilters(filters.map((f, i) => i === index ? { ...f, name: e.target.value } : f))} /><Input aria-label={`Filter ${index + 1} value`} placeholder="Value or source date" value={filter.value} onChange={(e) => setFilters(filters.map((f, i) => i === index ? { ...f, value: e.target.value } : f))} /><Button type="button" variant="outline" onClick={() => setFilters(filters.filter((_, i) => i !== index))}>Remove</Button></div>)}
+          <Button type="button" variant="outline" size="sm" onClick={() => setFilters([...filters, { name: "", value: "" }])}>Add filter</Button>
+        </fieldset>
+        <ErrorNotice error={error} />
+        <Button type="submit" disabled={!src || !resource || data.loading && !!request}>Fetch source data</Button>
+      </form>}
+      <ErrorNotice error={data.error} />
+      {request && data.loading && !data.data ? <Loading /> : data.data && <section className="space-y-2" aria-label="Source data"><p className="text-xs text-gray-500">Source: {data.data.product} · connector #{data.data.connector_id} · resource {data.data.resource} · fetched {data.data.fetched_at}</p><p className="text-xs text-gray-500">Submitted source filters: {JSON.stringify(request?.query ?? {})}</p><Json value={data.data.data} /></section>}
+      <section aria-label="Supplier invoices" className="space-y-2">
+        <h2 className="font-semibold text-sm">Supplier invoice review queue (latest 100)</h2>
+        <ErrorNotice error={invoices.error} />
+        {invoices.loading && !invoices.data ? <Loading /> : listOf(invoices.data).length === 0 ? <Empty>No supplier invoices.</Empty> : <ul className="divide-y border rounded-lg">{listOf(invoices.data).map((invoice) => <li key={invoice.id} className="p-3 space-y-2 text-sm"><div>Supplier {invoice.supplier_id || "awaiting identification"} <Badge>{invoice.status}</Badge></div><p className="text-xs text-gray-500">Received {invoice.created_at} · mailbox {invoice.mailbox_id} · forwarding {invoice.outbox_id || "not queued"}</p><details><summary className="cursor-pointer">Review original invoice content</summary><p className="whitespace-pre-wrap break-words py-2">{invoice.text || "No text supplied."}</p>{invoice.media?.length > 0 && <><p className="text-xs text-gray-500">Original media metadata; retrieve attachments from the trusted source mailbox.</p><Json value={invoice.media} /></>}</details></li>)}</ul>}
+      </section>
     </div>
   );
 }

@@ -1,278 +1,152 @@
 "use client";
 
-import { use, useRef, useState } from "react";
+import { use, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Empty, ErrorNotice, Json, Loading, PageHeader } from "@/components/ops/common";
 import { ActionPanel } from "@/components/ops/action-panel";
 import { useOps } from "@/lib/ops/session";
 import { listOf, useOpsFetch } from "@/lib/ops/hooks";
 import { pilot } from "@/lib/ops/paths";
-import { enc, newKey } from "@/lib/ops/api";
-import { canWrite as capCanWrite, normalizeCapabilities, recordPayload, type SectionCap } from "@/lib/ops/adapters";
-import { FIELD_PRESETS, FieldsForm } from "@/components/ops/forms";
+import { enc } from "@/lib/ops/api";
+import { normalizeCapabilities, recordPayload, type SectionCap } from "@/lib/ops/adapters";
+import { FieldsForm, providerFormFields, providerReferencePaths, useMutation, type FieldDef } from "@/components/ops/forms";
+import { RecordAttachments, RecordNote, RecordTask, RECORD_PARENTS } from "@/components/ops/record-extras";
+
+const ID_FIELDS: Record<string, string> = { candidates: "candidateId", contacts: "contactId", companies: "companyId", jobs: "jobId", applications: "applicationId", interviews: "interviewId", placements: "placementId", documents: "attachmentId", notes: "noteId", tasks: "taskId", jobads: "adId", folders: "folderId", users: "userId" };
+const recordPath = (target: string) => target.split("/").map(enc).join("/");
+function labelOf(row: any, fallback: string) { return row.name || row.jobTitle || row.title || row.folderName || [row.firstName, row.lastName].filter(Boolean).join(" ") || fallback; }
+function ownedBy(record: any, atsUserId: unknown): boolean {
+  if (!atsUserId || !record) return false;
+  const owner = record.ownerUserId ?? record.owner?.userId ?? record.owner?.id ?? record.recruiter?.userId;
+  return String(owner) === String(atsUserId) || (record.recruiters ?? []).some((user: any) => String(user.userId ?? user.id) === String(atsUserId));
+}
 
 export default function RecordsPage({ params }: { params: Promise<{ section: string }> }) {
   const { section } = use(params);
-  const { tenant, me } = useOps();
+  return <RecordsSection key={section} section={section} />;
+}
+
+function RecordsSection({ section }: { section: string }) {
+  const { tenant, me, isOwner } = useOps();
   const caps = useOpsFetch(pilot(tenant!, "capabilities/"));
-  const [keywords, setKeywords] = useState("");
-  const [applied, setApplied] = useState("");
-  const [offset, setOffset] = useState(0);
-  const [sel, setSel] = useState<string | null>(null);
-  const sections = normalizeCapabilities(caps.data);
-  const cap = sections.find((s) => s.name === section);
-  const canWrite = capCanWrite(cap);
+  const sections = normalizeCapabilities(caps.data).filter((item) => item.name !== "webhooks" || isOwner);
+  const cap = sections.find((item) => item.name === section);
+  const [keywords, setKeywords] = useState(""); const [applied, setApplied] = useState("");
+  const [offset, setOffset] = useState(0); const [selected, setSelected] = useState<string | null>(null);
+  const [lookup, setLookup] = useState("");
+  const special = ["documents", "custom_fields", "reference"].includes(section);
+  const list = useOpsFetch(cap?.list && !special ? pilot(tenant!, `records/${enc(section)}/`) : null, { query: { Limit: 25, Offset: offset, Keywords: applied || undefined } });
+  const rows = listOf(recordPayload(list.data));
+  const hasForm = providerFormFields(section, "create").length > 0;
+  const standardCanCreate = me?.role !== "standard_staff" || (!!me.ats_user_id && ["candidates", "contacts", "companies", "jobs", "jobads"].includes(section));
+  return <div>
+    <PageHeader title={section.replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase())} description={me && !me.ats_connected ? "Link your own JobAdder account in Settings. The provider checks your granted permissions." : "Lists are bounded snapshots from the connected provider."}>
+      {cap?.create && hasForm && standardCanCreate && <Button size="sm" onClick={() => setSelected("new")}>New {section === "companies" ? "company" : section.replace(/s$/, "")}</Button>}
+    </PageHeader>
+    <nav aria-label="Record sections" className="flex flex-wrap gap-1 mb-4">{sections.filter((item) => item.list || item.get).map((item) => <Link key={item.name} href={`/records/${item.name}`} aria-current={item.name === section ? "page" : undefined} className={`text-xs rounded-full border px-3 py-1 ${item.name === section ? "bg-gray-900 text-white" : ""}`}>{item.name.replaceAll("_", " ")}</Link>)}</nav>
+    <ErrorNotice error={caps.error ?? list.error} />
+    {caps.loading && !caps.data ? <Loading label="Checking supported provider operations…" /> : !cap ? <Empty>This section is unavailable for your account.</Empty> : special ? <SpecialSection section={section} cap={cap} /> : <>
+      {cap.list && <form className="flex gap-2 mb-4" onSubmit={(event) => { event.preventDefault(); setOffset(0); setApplied(keywords); }}><Label htmlFor="record-search" className="sr-only">Search records</Label><Input id="record-search" value={keywords} onChange={(event) => setKeywords(event.target.value)} placeholder="Provider keywords…" /><Button type="submit" variant="outline">Search</Button></form>}
+      {cap.get && <form className="flex gap-2 mb-4" onSubmit={(event) => { event.preventDefault(); setSelected(lookup.trim()); }}><Label htmlFor="record-lookup" className="sr-only">Record ID</Label><Input id="record-lookup" value={lookup} onChange={(event) => setLookup(event.target.value)} placeholder={section === "interviews" ? "Interview ID / application ID" : "Open a known record ID"} /><Button size="sm" variant="outline" disabled={!lookup.trim() || (section === "interviews" && !/^\d+\/\d+$/.test(lookup.trim()))}>Open</Button></form>}
+      {["applications", "interviews"].includes(section) && <p className="text-sm text-gray-500 mb-4">{section === "applications" ? "Create applications from a candidate or job record." : "Schedule interviews from an application record. Opening an interview requires interview ID/application ID."}</p>}
+      {me?.role === "standard_staff" && <p className="text-xs text-gray-500 mb-4">You can update records owned by your linked ATS user. New records are assigned to that user.</p>}
+      <div className="grid gap-4 lg:grid-cols-2"><div>
+        {cap.list ? list.loading && !list.data ? <Loading /> : rows.length ? <ul className="divide-y border rounded-lg">{rows.map((row, index) => {
+          const identifier = row[ID_FIELDS[section]] ?? row.id;
+          const id = identifier == null ? "" : String(identifier);
+          return <li key={id || index}>{cap.get && id ? <button type="button" className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-900" aria-pressed={selected === id} onClick={() => setSelected(id)}><span className="font-medium">{labelOf(row, id)}</span> <span className="text-gray-500">#{id}</span></button> : <div className="p-3 text-sm">{labelOf(row, `Record ${index + 1}`)}</div>}</li>;
+        })}</ul> : <Empty>No records.</Empty> : <Empty>This section supports lookup by ID.</Empty>}
+        {cap.list && <div className="flex gap-2 mt-3"><Button size="sm" variant="outline" disabled={offset === 0 || list.loading} onClick={() => setOffset(Math.max(0, offset - 25))}>Previous</Button><Button size="sm" variant="outline" disabled={rows.length < 25 || list.loading} onClick={() => setOffset(offset + 25)}>Next</Button><span className="text-xs text-gray-500 self-center">From {offset + 1}</span></div>}
+      </div><div>{selected === "new" && cap.create && standardCanCreate ? <RecordForm key="new" section={section} onDone={list.reload} /> : selected && cap.get ? <RecordDetail key={selected} section={section} id={selected} sections={sections} onChanged={list.reload} /> : <Empty>Select a record.</Empty>}</div></div>
+    </>}
+  </div>;
+}
 
-  const list = useOpsFetch(pilot(tenant!, `records/${enc(section)}/`), { query: { Limit: 25, Offset: offset, Keywords: applied || undefined } });
-  const items = listOf(recordPayload(list.data));
-
-  return (
-    <div>
-      <PageHeader title={section[0].toUpperCase() + section.slice(1)} description={me && !me.ats_connected ? "Connect your JobAdder login in Settings to see records." : undefined}>
-        {cap?.create && <Button size="sm" onClick={() => setSel("new")}>New</Button>}
-      </PageHeader>
-      <nav aria-label="Sections" className="flex flex-wrap gap-1 mb-4">
-        {sections.filter((s) => s.list).map((s) => {
-          const n = s.name;
-          return <Link key={n} href={`/records/${n}`} className={`text-xs rounded-full border px-3 py-1 ${n === section ? "bg-gray-900 text-white" : ""}`}>{n}</Link>;
-        })}
-      </nav>
-      <form className="flex gap-2 mb-4" onSubmit={(e) => { e.preventDefault(); setOffset(0); setApplied(keywords); }}>
-        <Label htmlFor="kw" className="sr-only">Search</Label>
-        <Input id="kw" value={keywords} onChange={(e) => setKeywords(e.target.value)} placeholder="Search…" />
-        <Button type="submit" variant="outline">Search</Button>
-      </form>
-      <ErrorNotice error={list.error} />
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div>
-          {list.loading && !list.data ? <Loading /> : items.length === 0 ? <Empty>No records.</Empty> : (
-            <ul className="divide-y border rounded-lg">
-              {items.map((r: any, i: number) => {
-                const id = String(r.id ?? r.candidateId ?? r.jobId ?? r.contactId ?? r.companyId ?? i);
-                const name = r.name ?? [r.firstName, r.lastName].filter(Boolean).join(" ") ?? r.jobTitle ?? id;
-                return (
-                  <li key={id}>
-                    <button className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-900" onClick={() => setSel(id)}>
-                      <span className="font-medium">{name || id}</span> <span className="text-gray-500">#{id}</span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-          <div className="flex gap-2 mt-3">
-            <Button size="sm" variant="outline" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 25))}>Previous</Button>
-            <Button size="sm" variant="outline" disabled={items.length < 25} onClick={() => setOffset(offset + 25)}>Next</Button>
-          </div>
-        </div>
-        <div>
-          {sel === "new" ? (
-            <RecordForm key="new" section={section} onDone={() => list.reload()} />
-          ) : sel ? (
-            <RecordDetail key={sel} section={section} id={sel} sections={sections} onChanged={list.reload} />
-          ) : <Empty>Select a record.</Empty>}
-        </div>
-      </div>
-    </div>
-  );
+function SpecialSection({ section, cap }: { section: string; cap: SectionCap }) {
+  const { tenant, me } = useOps();
+  const [parent, setParent] = useState(section === "custom_fields" ? "candidates" : section === "reference" ? "countries" : "");
+  const [draft, setDraft] = useState(parent);
+  const list = useOpsFetch(cap.list && parent ? pilot(tenant!, `records/${section}/`) : null, { query: { parent } });
+  const parentRecord = useOpsFetch(section === "documents" && parent && me?.role === "standard_staff" ? pilot(tenant!, `records/${recordPath(parent)}/`) : null);
+  const canUpload = cap.create && (me?.role !== "standard_staff" || ownedBy(recordPayload(parentRecord.data), me?.ats_user_id));
+  return <div className="space-y-3">
+    <p className="text-sm text-gray-500">{section === "documents" ? "Choose the parent record to view and upload attachments." : section === "custom_fields" ? "View configured field definitions. Edit their values from the matching record." : "Select a documented reference path. Reference data is read only."}</p>
+    <form className="flex gap-2 items-end" onSubmit={(event) => { event.preventDefault(); setParent(draft); }}><div className="flex-1"><Label htmlFor="parent-path">{section === "documents" ? "Parent (section/record ID)" : section === "custom_fields" ? "Record section" : "Reference path"}</Label>
+      {section === "custom_fields" ? <select id="parent-path" className="w-full border rounded p-2 text-sm bg-transparent" value={draft} onChange={(e) => setDraft(e.target.value)}>{RECORD_PARENTS.map((name) => <option key={name}>{name}</option>)}</select> : section === "reference" ? <select id="parent-path" className="w-full border rounded p-2 text-sm bg-transparent" value={draft} onChange={(e) => setDraft(e.target.value)}>{providerReferencePaths.map((name) => <option key={name}>{name}</option>)}</select> : <Input id="parent-path" placeholder="candidates/123" pattern="(candidates|contacts|companies|jobs|applications|placements)/[0-9]+" required value={draft} onChange={(e) => setDraft(e.target.value)} />}</div><Button size="sm" variant="outline">Load</Button></form>
+    <ErrorNotice error={list.error} />
+    {section === "documents" ? parent ? <RecordAttachments key={parent} parent={parent} canCreate={canUpload} /> : <Empty>Choose a parent record.</Empty> : list.loading && !list.data ? <Loading /> : <Json value={recordPayload(list.data)} />}
+  </div>;
 }
 
 function RecordDetail({ section, id, sections, onChanged }: { section: string; id: string; sections: SectionCap[]; onChanged: () => void }) {
-  const { tenant, call, can } = useOps();
-  // What this tenant's backend actually supports for the record and its nested sections.
-  const cap = sections.find((s) => s.name === section);
-  const has = (name: string, flag: "create" | "update") => !!sections.find((s) => s.name === name)?.[flag];
-  const canWrite = capCanWrite(cap);
-  const deleteMode = cap?.deleteMode;
-  const rec = useOpsFetch(pilot(tenant!, `records/${enc(section)}/${enc(id)}/`));
-  const docs = useOpsFetch(pilot(tenant!, "records/documents/"), { query: { parent: `${section}/${id}` } });
+  const { tenant, me, call, can } = useOps();
+  const cap = sections.find((item) => item.name === section);
+  const has = (name: string, operation: "create" | "list") => !!sections.find((item) => item.name === name)?.[operation];
+  const record = useOpsFetch(pilot(tenant!, `records/${enc(section)}/${recordPath(id)}/`));
+  const after = recordPayload(record.data);
+  const writable = me?.role !== "standard_staff" || ownedBy(after, me.ats_user_id);
   const [editing, setEditing] = useState(false);
-  const [err, setErr] = useState<unknown>(null);
-  const [actionId, setActionId] = useState<number | null>(null);
-  const after = recordPayload(rec.data);
-  return (
-    <div className="space-y-3">
-      {rec.loading && !rec.data ? <Loading /> : <Json value={after} />}
-      <ErrorNotice error={rec.error ?? err} />
-      <div className="flex gap-2">
-        {cap?.update && <Button size="sm" variant="outline" onClick={() => setEditing(!editing)}>{editing ? "Close editor" : "Edit"}</Button>}
-        {/* Delete only creates a confirmation proposal; nothing is removed until YES is typed. */}
-        {!can("can_delete") ? null : deleteMode === "unavailable" || !cap?.delete ? <span className="text-xs text-gray-500 self-center">Delete unavailable</span> : (
-          <Button size="sm" variant="outline" onClick={async () => {
-            try { setErr(null); const r: any = await call(pilot(tenant!, `records/${enc(section)}/${enc(id)}/`), { method: "DELETE", key: newKey() }); setActionId(r.id); } catch (e) { setErr(e); }
-          }}>{deleteMode === "archive" ? "Archive…" : "Delete…"}</Button>
-        )}
-      </div>
-      {editing && <RecordForm section={section} id={id} initial={after} onDone={() => { rec.reload(); onChanged(); }} />}
-      {actionId != null && <ActionPanel id={actionId} deleteMode={deleteMode} onSettled={() => { rec.reload(); onChanged(); }} />}
-      {has("notes", "create") && <AddNote section={section} id={id} />}
-      {has("applications", "create") && (section === "jobs" || section === "candidates") && <AddApplication section={section} id={id} />}
-      {has("interviews", "create") && section === "applications" && <AddInterview id={id} />}
-      <Attachments section={section} id={id} docs={docs} canWrite={has("documents", "create")} />
-    </div>
-  );
+  const remove = useMutation(async (_: void, key) => call(pilot(tenant!, `records/${enc(section)}/${recordPath(id)}/`), { method: "DELETE", key }));
+  const parentSupported = RECORD_PARENTS.includes(section);
+  const onDone = () => { record.reload(); onChanged(); };
+  return <div className="space-y-4">
+    <ErrorNotice error={record.error ?? remove.error} />
+    {record.loading && !record.data ? <Loading /> : after != null && <Json value={after} />}
+    {record.data && <div className="flex flex-wrap gap-2">
+      {cap?.update && writable && providerFormFields(section, "update").length > 0 && <Button size="sm" variant="outline" onClick={() => setEditing(!editing)}>{editing ? "Close editor" : "Edit record"}</Button>}
+      {can("can_delete") && (cap?.delete ? <Button size="sm" variant="outline" disabled={remove.busy || !!remove.result?.id} onClick={() => remove.submit()}>{cap.deleteMode === "archive" ? "Propose archive…" : "Propose delete…"}</Button> : <span className="text-xs text-gray-500 self-center">Delete / archive unavailable</span>)}
+    </div>}
+    {me?.role === "standard_staff" && record.data && !writable && <p className="text-sm text-gray-500">Read only: ownership does not match your linked ATS user.</p>}
+    {editing && writable && <RecordForm section={section} id={id} initial={after} onDone={onDone} />}
+    {remove.result?.id && <ActionPanel id={remove.result.id} deleteMode={cap?.deleteMode} onSettled={(action) => action.status === "succeeded" && onDone()} />}
+    {parentSupported && record.data && <>
+      {has("notes", "list") && <RecordNote parent={`${section}/${id}`} canCreate={writable && has("notes", "create")} />}
+      {writable && has("tasks", "create") && <RecordTask parent={`${section}/${id}`} />}
+      {has("documents", "list") && <RecordAttachments parent={`${section}/${id}`} canCreate={writable && has("documents", "create")} />}
+      {writable && ["candidates", "jobs"].includes(section) && has("applications", "create") && me?.role !== "standard_staff" && <ApplicationForm section={section} id={id} />}
+      {writable && section === "applications" && has("interviews", "create") && me?.role !== "standard_staff" && <InterviewForm id={id} />}
+    </>}
+  </div>;
 }
 
-/** Free-form editor for provider fields (JSON); the provider validates the fields. */
 function RecordForm({ section, id, initial, onDone }: { section: string; id?: string; initial?: any; onDone: () => void }) {
-  const { tenant, call } = useOps();
-  const [text, setText] = useState(id ? "{\n  \n}" : "{\n  \n}");
-  const [err, setErr] = useState<unknown>(null);
-  const [actionId, setActionId] = useState<number | null>(null);
-  const key = useRef(newKey());
-  const lastText = useRef(text);
-  const preset = FIELD_PRESETS[section];
-  const [raw, setRaw] = useState(!preset);
-  const submitBody = async (body: any) => {
-    try {
-      setErr(null);
-      const sig = JSON.stringify(body);
-      if (sig !== lastText.current) { key.current = newKey(); lastText.current = sig; }
-      const r: any = await call(pilot(tenant!, id ? `records/${enc(section)}/${enc(id)}/` : `records/${enc(section)}/`), { method: id ? "PATCH" : "POST", body, key: key.current });
-      setActionId(r.id);
-    } catch (e) { setErr(e); }
-  };
-  const submit = async () => {
-    try {
-      setErr(null);
-      const body = JSON.parse(text);
-      if (text !== lastText.current) { key.current = newKey(); lastText.current = text; } // changed request => new key
-      const r: any = await call(pilot(tenant!, id ? `records/${enc(section)}/${enc(id)}/` : `records/${enc(section)}/`), { method: id ? "PATCH" : "POST", body, key: key.current });
-      setActionId(r.id);
-    } catch (e) { setErr(e); }
-  };
-  if (preset && !raw) {
-    return (
-      <div className="space-y-2">
-        <FieldsForm fields={preset} initial={id ? initial : undefined} submitLabel={id ? "Save changes" : "Create"} onSubmit={submitBody} />
-        <ErrorNotice error={err} />
-        <button className="text-xs underline" onClick={() => setRaw(true)}>Advanced: edit raw provider fields</button>
-        {actionId != null && <ActionPanel id={actionId} onSettled={onDone} />}
-      </div>
-    );
-  }
-  return (
-    <div className="space-y-2">
-      <Label htmlFor="fields">{id ? "Changed provider fields (JSON)" : "Provider fields (JSON)"}</Label>
-      <Textarea id="fields" rows={8} className="font-mono text-xs" value={text} onChange={(e) => setText(e.target.value)} />
-      <ErrorNotice error={err} />
-      <Button size="sm" onClick={submit}>{id ? "Save changes" : "Create"}</Button>
-      {actionId != null && <ActionPanel id={actionId} onSettled={onDone} />}
-    </div>
-  );
+  const { tenant, me, call } = useOps();
+  const fields = providerFormFields(section, id ? "update" : "create").filter((field) => me?.role !== "standard_staff" || !["ownerUserId", "recruiterUserId"].includes(field.name));
+  const definitions = useOpsFetch(RECORD_PARENTS.includes(section) ? pilot(tenant!, "records/custom_fields/") : null, { query: { parent: section } });
+  const customFields: FieldDef[] = listOf(recordPayload(definitions.data)).filter((field) => Number.isInteger(field.fieldId)).map((field) => ({
+    name: `custom_${field.fieldId}`, label: field.name || `Custom field ${field.fieldId}`, required: !id && !!field.mandatory,
+    schema: field.multiSelect ? { type: "array", items: { type: "string", ...(field.values?.length ? { enum: field.values } : {}) } } : undefined,
+    type: field.multiSelect ? "json" : field.type === "Date" ? "date" : field.type === "Url" ? "url" : field.multiLine ? "textarea" : "text", options: field.multiSelect ? undefined : field.values?.length ? field.values : undefined,
+    hint: field.multiSelect ? `JSON list; allowed values: ${(field.values ?? []).join(", ")}` : undefined,
+  }));
+  const customInitial = Object.fromEntries((Array.isArray(initial?.custom) ? initial.custom : []).map((field: any) => [`custom_${field.fieldId}`, field.value]));
+  const mutation = useMutation(async (values: Record<string, any>, key) => {
+    const data: Record<string, any> = {}; const custom: any[] = [];
+    for (const [name, value] of Object.entries(values)) { if (name.startsWith("custom_")) custom.push({ fieldId: Number(name.slice(7)), value }); else data[name] = value; }
+    if (custom.length) data.custom = custom;
+    if (!id && me?.role === "standard_staff" && me.ats_user_id) data[section === "candidates" ? "recruiterUserId" : "ownerUserId"] = section === "candidates" ? [Number(me.ats_user_id)] : Number(me.ats_user_id);
+    return call(pilot(tenant!, id ? `records/${section}/${recordPath(id)}/` : `records/${section}/`), { method: id ? "PATCH" : "POST", body: data, key });
+  });
+  return <div className="space-y-3 border rounded-lg p-3">
+    <h2 className="font-semibold text-sm">{id ? "Edit record" : "Create record"}</h2><p className="text-xs text-gray-500">Provider fields from the verified schema. Status and owner IDs must match this account&apos;s reference data. Structured fields accept only their documented keys.</p>
+    <ErrorNotice error={mutation.error ?? definitions.error} />
+    {definitions.loading && RECORD_PARENTS.includes(section) ? <Loading label="Loading configured custom fields…" /> : <FieldsForm key={`${id ?? "new"}-${customFields.map((field) => field.name).join()}`} fields={[...fields, ...customFields]} initial={initial ? { ...initial, ...customInitial } : undefined} busy={mutation.busy} submitLabel={id ? "Queue changes" : "Queue creation"} onSubmit={mutation.submit} />}
+    {mutation.result?.id && <ActionPanel id={mutation.result.id} onSettled={(action) => action.status === "succeeded" && onDone()} />}
+  </div>;
 }
 
-const MAX_BYTES = 20 * 1024 * 1024;
-
-function Attachments({ section, id, docs, canWrite }: { section: string; id: string; docs: { data: any; reload: () => void }; canWrite: boolean }) {
-  const { tenant, call } = useOps();
-  const [err, setErr] = useState<unknown>(null);
-  const [actionId, setActionId] = useState<number | null>(null);
-  const [busy, setBusy] = useState(false);
-  const upload = async (file: File) => {
-    setErr(null);
-    if (file.size > MAX_BYTES) return setErr(new Error("Files are limited to 20 MiB."));
-    setBusy(true);
-    try {
-      const buf = new Uint8Array(await file.arrayBuffer());
-      let bin = ""; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
-      const r: any = await call(pilot(tenant!, "actions/"), { method: "POST", key: newKey(), body: { section: "documents", operation: "create", target: `${section}/${id}`, data: { name: file.name, content_base64: btoa(bin), content_type: file.type || "application/octet-stream", type: "Other" } } });
-      setActionId(r.id);
-    } catch (e) { setErr(e); } finally { setBusy(false); }
-  };
-  return (
-    <div className="space-y-2">
-      <h3 className="text-sm font-semibold">Attachments</h3>
-      {listOf(recordPayload(docs.data)).map((d: any, i: number) => <div key={i} className="text-xs">{d.name ?? d.fileName ?? JSON.stringify(d)}</div>)}
-      {canWrite && (<><Label htmlFor="upl" className="text-xs">Upload (max 20 MiB)</Label><Input id="upl" type="file" disabled={busy} onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} /></>)}
-      <ErrorNotice error={err} />
-      {actionId != null && <ActionPanel id={actionId} onSettled={() => docs.reload()} />}
-    </div>
-  );
+function ApplicationForm({ section, id }: { section: string; id: string }) {
+  const { tenant, call } = useOps(); const [other, setOther] = useState("");
+  const create = useMutation(async (value: string, key) => call(pilot(tenant!, "actions/"), { method: "POST", key, body: { section: "applications", operation: "create", target: `${section}/${id}`, data: { [section === "jobs" ? "candidateId" : "jobId"]: [Number(value)] } } }));
+  return <section className="space-y-2"><form className="space-y-2" onSubmit={(event) => { event.preventDefault(); create.submit(other); }}><Label htmlFor="application-other">{section === "jobs" ? "Candidate" : "Job"} ID</Label><Input id="application-other" type="number" min={1} step={1} required value={other} onChange={(e) => setOther(e.target.value)} /><Button size="sm" variant="outline" disabled={!other || create.busy}>Queue application</Button></form><ErrorNotice error={create.error} />{create.result?.id && <ActionPanel id={create.result.id} />}</section>;
 }
 
-function AddNote({ section, id }: { section: string; id: string }) {
-  const { tenant, call } = useOps();
-  const [text, setText] = useState("");
-  const [err, setErr] = useState<unknown>(null);
-  const [actionId, setActionId] = useState<number | null>(null);
-  const key = useRef(newKey());
-  return (
-    <div className="space-y-2">
-      <Label htmlFor="note">Add note</Label>
-      <Textarea id="note" rows={2} value={text} onChange={(e) => setText(e.target.value)} />
-      <ErrorNotice error={err} />
-      <Button size="sm" variant="outline" disabled={!text.trim()} onClick={async () => {
-        try { setErr(null); const r: any = await call(pilot(tenant!, "actions/"), { method: "POST", key: key.current, body: { section: "notes", operation: "create", target: `${section}/${id}`, data: { text } } }); key.current = newKey(); setText(""); setActionId(r.id); } catch (e) { setErr(e); }
-      }}>Add note</Button>
-      {actionId != null && <ActionPanel id={actionId} />}
-    </div>
-  );
-}
-
-function ActionForm({ title, label, build }: { title: string; label: string; build: (v: string) => any }) {
-  const { tenant, call } = useOps();
-  const [v, setV] = useState("");
-  const [err, setErr] = useState<unknown>(null);
-  const [actionId, setActionId] = useState<number | null>(null);
-  const key = useRef(newKey());
-  return (
-    <div className="space-y-2">
-      <Label htmlFor={title}>{label}</Label>
-      <Input id={title} value={v} onChange={(e) => setV(e.target.value.replace(/\D/g, ""))} />
-      <ErrorNotice error={err} />
-      <Button size="sm" variant="outline" disabled={!v} onClick={async () => {
-        try { setErr(null); const r: any = await call(pilot(tenant!, "actions/"), { method: "POST", key: key.current, body: build(v) }); key.current = newKey(); setV(""); setActionId(r.id); } catch (e) { setErr(e); }
-      }}>{title}</Button>
-      {actionId != null && <ActionPanel id={actionId} />}
-    </div>
-  );
-}
-
-function AddApplication({ section, id }: { section: string; id: string }) {
-  // Under a job the body carries candidateId; under a candidate it carries jobId. Both are arrays.
-  const field = section === "jobs" ? "candidateId" : "jobId";
-  return <ActionForm title="Create application" label={section === "jobs" ? "Candidate ID" : "Job ID"} build={(v) => ({ section: "applications", operation: "create", target: `${section}/${id}`, data: { [field]: [Number(v)] } })} />;
-}
-
-function AddInterview({ id }: { id: string }) {
-  const { tenant, call } = useOps();
-  const [kind, setKind] = useState<"external" | "internal">("external");
-  const [f, setF] = useState({ location: "", startAt: "", endAt: "", people: "" });
-  const [err, setErr] = useState<unknown>(null);
-  const [actionId, setActionId] = useState<number | null>(null);
-  const key = useRef(newKey());
-  const ids = f.people.split(",").map((x) => Number(x.trim())).filter(Boolean);
-  const ok = f.location.trim() && ids.length > 0;
-  return (
-    <div className="space-y-2">
-      <h3 className="text-sm font-semibold">Schedule interview</h3>
-      <Label htmlFor="iv-kind">Type</Label>
-      <select id="iv-kind" className="block border rounded-md px-2 py-2 text-sm bg-transparent" value={kind} onChange={(e) => setKind(e.target.value as "external" | "internal")}>
-        <option value="external">External (client contacts)</option>
-        <option value="internal">Internal (our users)</option>
-      </select>
-      <Label htmlFor="iv-loc">Location *</Label><Input id="iv-loc" value={f.location} onChange={(e) => setF({ ...f, location: e.target.value })} />
-      <Label htmlFor="iv-people">{kind === "external" ? "Interviewer contact IDs *" : "Interviewer user IDs *"} (comma-separated)</Label>
-      <Input id="iv-people" value={f.people} onChange={(e) => setF({ ...f, people: e.target.value.replace(/[^\d,\s]/g, "") })} />
-      <Label htmlFor="iv-start">Start</Label><Input id="iv-start" type="datetime-local" value={f.startAt} onChange={(e) => setF({ ...f, startAt: e.target.value })} />
-      <Label htmlFor="iv-end">End</Label><Input id="iv-end" type="datetime-local" value={f.endAt} onChange={(e) => setF({ ...f, endAt: e.target.value })} />
-      <ErrorNotice error={err} />
-      <Button size="sm" variant="outline" disabled={!ok} onClick={async () => {
-        try {
-          setErr(null);
-          const data: Record<string, unknown> = { _interview_type: kind, location: f.location, [kind === "external" ? "interviewersContactIds" : "interviewersUserIds"]: ids };
-          if (f.startAt) data.startAt = new Date(f.startAt).toISOString();
-          if (f.endAt) data.endAt = new Date(f.endAt).toISOString();
-          const r: any = await call(pilot(tenant!, "actions/"), { method: "POST", key: key.current, body: { section: "interviews", operation: "create", target: `applications/${id}`, data } });
-          key.current = newKey(); setActionId(r.id);
-        } catch (e) { setErr(e); }
-      }}>Schedule interview</Button>
-      {actionId != null && <ActionPanel id={actionId} />}
-    </div>
-  );
+function InterviewForm({ id }: { id: string }) {
+  const { tenant, call } = useOps(); const [kind, setKind] = useState("external");
+  const fields: FieldDef[] = [{ name: "location", label: "Location", required: true }, { name: kind === "external" ? "interviewersContactIds" : "interviewersUserIds", label: kind === "external" ? "Interviewer contact IDs (JSON array)" : "Interviewer user IDs (JSON array)", type: "json", required: true, schema: { type: "array", items: { type: "integer" } } }, { name: "startAt", label: "Start (ISO date and time with timezone)", schema: { type: "string", format: "date-time" } }, { name: "endAt", label: "End (ISO date and time with timezone)", schema: { type: "string", format: "date-time" } }];
+  const create = useMutation(async (data: any, key) => { if (data.startAt && data.endAt && Date.parse(data.endAt) <= Date.parse(data.startAt)) throw new Error("The end must be after the start."); return call(pilot(tenant!, "actions/"), { method: "POST", key, body: { section: "interviews", operation: "create", target: `applications/${id}`, data: { ...data, _interview_type: kind } } }); });
+  return <section className="space-y-2"><h3 className="text-sm font-semibold">Schedule interview</h3><Label htmlFor="interview-kind">Interview type</Label><select id="interview-kind" className="block border rounded p-2 text-sm bg-transparent" value={kind} onChange={(event) => setKind(event.target.value)}><option value="external">External (client contacts)</option><option value="internal">Internal (our users)</option></select><FieldsForm key={kind} fields={fields} submitLabel="Queue interview" busy={create.busy} onSubmit={create.submit} /><ErrorNotice error={create.error} />{create.result?.id && <ActionPanel id={create.result.id} />}</section>;
 }

@@ -9,6 +9,7 @@ export default defineConfig([
   ...nextVitals,
   ...nextTs,
   {
+    files: ["**/*.{ts,tsx}"],
     rules: {
       // Provider/ATS payloads are untyped JSON; flag but don't fail on them.
       "@typescript-eslint/no-explicit-any": "warn",
@@ -17,6 +18,7 @@ export default defineConfig([
   {
     // Pre-existing code: report newer React-compiler and style findings as warnings
     // so `npm run lint` is usable; fix them as those files are touched.
+    files: ["**/*.{js,jsx,mjs,ts,tsx}"],
     ignores: opsFiles,
     rules: {
       "react-hooks/set-state-in-effect": "warn",
@@ -29,6 +31,10 @@ export default defineConfig([
       "@typescript-eslint/no-require-imports": "warn",
       "@typescript-eslint/ban-ts-comment": "warn",
     },
+  },
+  {
+    files: ["**/*.test.cjs"],
+    rules: { "@typescript-eslint/no-require-imports": "off" },
   },
   globalIgnores([".next/**", "out/**", "build/**", "next-env.d.ts", "public/**"]),
 ]);

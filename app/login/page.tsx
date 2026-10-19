@@ -17,7 +17,7 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { authService, cookieUtils } from "@/services/auth-service";
+import { authService } from "@/services/auth-service";
 import { profileService } from "@/services/profile-service";
 
 export default function SignInPage() {
@@ -36,59 +36,28 @@ export default function SignInPage() {
     const [step, setStep] = useState<"login" | "otp">("login");
     const [challengeId, setChallengeId] = useState<string | null>(null);
 
-    // Check for existing session on mount
-    useEffect(() => {
-        const checkSession = async () => {
-            const accessToken = cookieUtils.get("access");
-            const refreshTokenStr = cookieUtils.get("refresh");
-            if (accessToken && refreshTokenStr) {
-                await verifyAndRedirect(accessToken, refreshTokenStr);
-            }
-            setIsCheckingSession(false);
-        };
-        checkSession();
-    }, []);
-
     const [showPassword, setShowPassword] = useState(false);
-
     const handleInputChange = (field: "email" | "password", value: string) => {
-        setFormData((prev) => ({ ...prev, [field]: value }));
+        setFormData(prev => ({ ...prev, [field]: value }));
     };
-
-    const verifyAndRedirect = async (accessToken: string, refreshTokenStr: string) => {
-        try {
-            const verifyRes = await authService.verifyToken(accessToken);
-
-            if (verifyRes.ok) {
-                const statusRes = await profileService.getPlatformStatus();
-                const complianceStatus = statusRes.data.compliance_status;
-                if (complianceStatus !== "" && complianceStatus !== null && complianceStatus !== "rejected") {
-                    router.push("/dashboard");
-                } else {
-                    router.push("/activation");
-                }
-                return;
-            }
-
-            const verifyData = await verifyRes.json();
-            if (verifyData.code === "token_not_valid") {
-                const refreshRes = await authService.refreshToken(refreshTokenStr);
-
-                if (refreshRes.ok) {
-                    const refreshData = await refreshRes.json();
-                    cookieUtils.set("access", refreshData.access, 7);
-                    cookieUtils.set("refresh", refreshData.refresh, 7);
-                    router.push("/activation");
-                } else {
-                    setStep("login");
-                    cookieUtils.set("access", "", -1);
-                    cookieUtils.set("refresh", "", -1);
-                }
-            }
-        } catch (err) {
-            console.error("Session verification failed", err);
+    const redirectAfterSignIn = async () => {
+        const statusRes = await profileService.getPlatformStatus();
+        const status = statusRes.data.compliance_status;
+        router.replace(status && status !== "rejected" ? "/dashboard" : "/activation");
+    };
+    useEffect(() => {
+        let live = true;
+        // MFA reauthentication must start a fresh password + challenge flow.
+        if (new URLSearchParams(window.location.search).has("reauth")) {
+            authService.logout().finally(() => { if (live) setIsCheckingSession(false); });
+            return () => { live = false; };
         }
-    };
+        authService.verifyToken().then(async res => {
+            if (res.ok && live) await redirectAfterSignIn();
+        }).catch(() => {}).finally(() => { if (live) setIsCheckingSession(false); });
+        return () => { live = false; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -104,20 +73,13 @@ export default function SignInPage() {
 
             if (response.ok) {
                 if (data.otp_required) {
-                    setChallengeId(data.challenge_id ?? null);
-                    setShowSuccessDialog(true);
+                    if (!data.challenge_id) throw new Error("The server did not provide a sign-in challenge. Please try again.");
+                    setChallengeId(data.challenge_id);
+                    setOtp("");
+                    setFormData(prev => ({ ...prev, password: "" }));
+                    setStep("otp");
                 } else {
-                    // Directly login if OTP is not required
-                    cookieUtils.set("access", data.access, 7);
-                    cookieUtils.set("refresh", data.refresh, 7);
-
-                    const statusRes = await profileService.getPlatformStatus();
-                    const complianceStatus = statusRes.data.compliance_status;
-                    if (complianceStatus !== "" && complianceStatus !== null && complianceStatus !== "rejected") {
-                        router.push("/dashboard");
-                    } else {
-                        router.push("/activation");
-                    }
+                    await redirectAfterSignIn();
                 }
             } else {
                 let errorMsg = "Something went wrong. Please try again.";
@@ -153,9 +115,9 @@ export default function SignInPage() {
             const data = await response.json();
 
             if (response.ok) {
-                cookieUtils.set("access", data.access, 7);
-                cookieUtils.set("refresh", data.refresh, 7);
-                await verifyAndRedirect(data.access, data.refresh);
+                setChallengeId(null);
+                setOtp("");
+                await redirectAfterSignIn();
             } else {
                 let errorMsg = "OTP verification failed.";
                 if (data.otp_code) {
@@ -174,13 +136,7 @@ export default function SignInPage() {
         }
     };
 
-    // if (isCheckingSession) {
-    //     return (
-    //         <div className="flex items-center justify-center h-screen bg-white">
-    //             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900" />
-    //         </div>
-    //     );
-    // }
+    if (isCheckingSession) return <div role="status" className="p-8 text-center">Checking your session…</div>;
 
     return (
         <div className="relative min-h-screen overflow-hidden bg-background">
@@ -314,7 +270,7 @@ export default function SignInPage() {
                                                     htmlFor="remember_me"
                                                     className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
                                                 >
-                                                    Remember me for a month
+                                                    Remember me for 7 days
                                                 </Label>
                                             </div>
 
@@ -330,13 +286,17 @@ export default function SignInPage() {
                                     ) : (
                                         <form onSubmit={handleOtpSubmit} className="space-y-4">
                                             <div className="space-y-2">
-                                                <Label htmlFor="otp">OTP Number</Label>
+                                                <Label htmlFor="otp">Six-digit sign-in code</Label>
+                                                <p className="text-xs text-muted-foreground">This challenge expires in 10 minutes and permits 5 attempts.</p>
                                                 <Input
                                                     id="otp"
                                                     type="text"
                                                     placeholder="Enter OTP"
                                                     value={otp}
-                                                    onChange={(e) => setOtp(e.target.value)}
+                                                    onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                                                    inputMode="numeric"
+                                                    pattern="[0-9]{6}"
+                                                    maxLength={6}
                                                     required
                                                     autoComplete="one-time-code"
                                                     disabled={isLoading}
@@ -351,6 +311,7 @@ export default function SignInPage() {
                                             >
                                                 {isLoading ? "Verifying..." : "Verify"}
                                             </Button>
+                                            <Button type="button" variant="outline" className="w-full" disabled={isLoading} onClick={() => { setStep("login"); setChallengeId(null); setOtp(""); }}>Start a new sign-in</Button>
                                         </form>
                                     )}
 

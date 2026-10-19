@@ -1,5 +1,5 @@
 import { BASE_URL } from "@/lib/baseUrl";
-import { authService, cookieUtils } from "@/services/auth-service";
+
 
 export class ApiError extends Error {
   status: number;
@@ -35,26 +35,6 @@ export interface ApiOptions {
   query?: Record<string, string | number | boolean | undefined | null>;
 }
 
-let refreshing: Promise<string | null> | null = null;
-
-async function refreshAccess(): Promise<string | null> {
-  if (!refreshing) {
-    refreshing = (async () => {
-      const refresh = cookieUtils.get("refresh");
-      if (!refresh) return null;
-      const res = await authService.refreshToken(refresh);
-      if (!res.ok) return null;
-      const data = await res.json();
-      cookieUtils.set("access", data.access, 7);
-      if (data.refresh) cookieUtils.set("refresh", data.refresh, 7);
-      return data.access as string;
-    })().finally(() => {
-      refreshing = null;
-    });
-  }
-  return refreshing;
-}
-
 export function buildQuery(query?: ApiOptions["query"]) {
   if (!query) return "";
   const usp = new URLSearchParams();
@@ -67,27 +47,21 @@ export function buildQuery(query?: ApiOptions["query"]) {
 
 /** Call a tenant-scoped API. `path` is relative to `/api/v1` and keeps its trailing slash. */
 export async function api<T = any>(path: string, tenant: number | null, options: ApiOptions = {}): Promise<T> {
-  const doFetch = async (token: string | null) =>
-    fetch(`${BASE_URL}${path}${buildQuery(options.query)}`, {
-      method: options.method ?? "GET",
-      signal: options.signal,
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(tenant != null ? { "X-Tenant-ID": String(tenant) } : {}),
-        ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
-        ...(options.key ? { "Idempotency-Key": options.key } : {}),
-      },
-      ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
-    });
-
-  let response = await doFetch(cookieUtils.get("access"));
+  const response = await fetch(`${BASE_URL}${path}${buildQuery(options.query)}`, {
+    method: options.method ?? "GET",
+    signal: options.signal,
+    cache: "no-store",
+    headers: {
+      ...(tenant != null ? { "X-Tenant-ID": String(tenant) } : {}),
+      ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
+      ...(options.key ? { "Idempotency-Key": options.key } : {}),
+    },
+    ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
+  });
   if (response.status === 401) {
-    const fresh = await refreshAccess();
-    if (!fresh) {
-      if (typeof window !== "undefined") window.location.href = "/login";
-      throw new ApiError(401, { detail: "Session expired" });
-    }
-    response = await doFetch(fresh);
+    window.dispatchEvent(new Event("callpilot:session-clear"));
+    window.location.assign("/login");
+    throw new ApiError(401, { detail: "Session expired. Please sign in again." });
   }
   const value = response.status === 204 ? null : await response.json().catch(() => null);
   if (!response.ok) throw new ApiError(response.status, value);

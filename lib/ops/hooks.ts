@@ -46,7 +46,7 @@ export function useOpsFetch<T = any>(
       if (first) setLoading(true);
       try {
         const v = await call<T>(path, { query: opts.query, signal: ctl.signal });
-        if (mine === seq.current) {
+        if (!ctl.signal.aborted && mine === seq.current) {
           setData(v);
           setError(null);
         }
@@ -60,6 +60,7 @@ export function useOpsFetch<T = any>(
     run(true);
     return () => {
       ctl.abort();
+      seq.current++;
       if (timer) clearTimeout(timer);
     };
     // setData/setError/opts.query are derived from the deps below

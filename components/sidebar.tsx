@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import {
   MessageCircle,
+  Inbox,
   Zap,
   Volume2,
   ImageIcon,
@@ -81,11 +82,13 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
 
   const menuItems = isVoipUser
     ? [
+      { icon: Inbox, label: 'Operations inbox', href: '/inbox', isBold: true },
       { label: 'AI Flows', isHeader: true },
       { icon: Shuffle, label: 'AI Call Builder', href: '/dashboard/phone-call-flows', isBold: true },
     ]
     : [
       { icon: LayoutGrid, label: 'AI Control Centre', href: '/dashboard', isBold: true },
+      { icon: Inbox, label: 'Operations inbox', href: '/inbox', isBold: true },
       { label: 'Integrations', isHeader: true },
       { icon: Globe, label: 'Connect ATS', href: '/dashboard/connect-ats', isBold: true },
       { icon: Phone, label: 'Business Phone Numbers', href: '/dashboard/phone-numbers', isBold: true },

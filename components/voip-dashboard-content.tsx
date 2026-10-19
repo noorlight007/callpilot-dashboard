@@ -573,7 +573,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
             ...((opts.headers as Record<string, string>) || {})
         }
 
-        const fullUrl = url.startsWith("http")
+        const fullUrl = url.startsWith("http") || url.startsWith(`${VOICE_BASE}/`) || url.startsWith("/api/voice/")
             ? url
             : `${VOICE_BASE}${url.startsWith("/") ? "" : "/"}${url}`
 
@@ -816,7 +816,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                 const fresh = liveCalls.find((candidate: any) => sameCall(candidate, originalCall))
                 if (fresh) call = fresh
             } catch (e) {
-                console.warn("Could not refresh incoming Telnyx Call object before answer", e)
+                console.warn("Could not refresh incoming Telnyx Call object before answer")
             }
         }
 
@@ -841,13 +841,6 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         options.attach = true
 
         try {
-            console.info("[TELNYX] Answer button pressed", {
-                id: callId(call),
-                state: callState(call),
-                direction: callDirection(call),
-                hasPeer: !!call?.peer,
-                attachWorkaround: true
-            })
 
             // IMPORTANT: do not await an extra permissions probe before this call.
             // answer() must run immediately from the user's click. The Telnyx SDK will
@@ -930,7 +923,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
             setSoundBannerVisible(!running)
             if (running && ringRequestedRef.current) startRingSource()
         } catch (e) {
-            console.warn("Could not unlock ringtone audio", e)
+            console.warn("Could not unlock ringtone audio")
             setSoundBannerVisible(true)
         }
     }
@@ -989,88 +982,20 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         }).catch(() => setSoundBannerVisible(true))
     }
 
-    // Refresh list of calls or voicemail from API
+    // API errors stay visible; failed requests never become fabricated call records.
     const refreshList = useCallback(async () => {
+        if (document.hidden) return
         setListErrorMessage(null)
         try {
             if (currentTabRef.current === "voicemail") {
-                const res = await api(cfgRef.current.voicemailsUrl).catch(() => null)
-                const vms: VoicemailItem[] = res && res.voicemails ? res.voicemails : [
-                    {
-                        uid: "vm-1",
-                        id: "vm-1",
-                        from: "+44 161 496 0184",
-                        created_at: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-                        duration: 38,
-                        is_read: false,
-                        ready: true,
-                        audio_url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
-                        read_url: `${VOICE_BASE}/voice/api/voicemails/vm-1/read/`
-                    },
-                    {
-                        uid: "vm-2",
-                        id: "vm-2",
-                        from: "+44 770 090 0552",
-                        created_at: new Date(Date.now() - 1000 * 60 * 1440).toISOString(),
-                        duration: 52,
-                        is_read: true,
-                        ready: true,
-                        audio_url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3",
-                        read_url: `${VOICE_BASE}/voice/api/voicemails/vm-2/read/`
-                    }
-                ]
+                const res = await api(cfgRef.current.voicemailsUrl)
+                const vms: VoicemailItem[] = Array.isArray(res.voicemails) ? res.voicemails : []
                 setVoicemailsList(vms)
-                const unread = vms.filter(v => !v.is_read).length
-                setUnreadVoicemails(unread)
+                setUnreadVoicemails(vms.filter(v => !v.is_read).length)
             } else {
                 const url = cfgRef.current.callsUrl + (currentTabRef.current === "missed" ? "?filter=missed" : "")
-                const res = await api(url).catch(() => null)
-                const calls: CallItem[] = res && res.calls ? res.calls : [
-                    {
-                        uid: "call-1",
-                        id: 1,
-                        direction: "inbound",
-                        status: "completed",
-                        number: "+44 20 7946 0912",
-                        contact_name: "Sarah Jenkins",
-                        started_at: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
-                        duration: 142,
-                        handled_by: "Ext 101"
-                    },
-                    {
-                        uid: "call-2",
-                        id: 2,
-                        direction: "inbound",
-                        status: "missed",
-                        number: "+44 161 496 0184",
-                        contact_name: "Marcus Davies",
-                        started_at: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-                        duration: 0,
-                        has_voicemail: true
-                    },
-                    {
-                        uid: "call-3",
-                        id: 3,
-                        direction: "outbound",
-                        status: "completed",
-                        number: "+44 113 496 0833",
-                        contact_name: "David Smith",
-                        started_at: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
-                        duration: 265,
-                        handled_by: "Ext 101"
-                    },
-                    {
-                        uid: "call-4",
-                        id: 4,
-                        direction: "inbound",
-                        status: "missed",
-                        number: "+44 20 8946 0233",
-                        contact_name: "Emma Wilson",
-                        started_at: new Date(Date.now() - 1000 * 60 * 300).toISOString(),
-                        duration: 0
-                    }
-                ]
-                setCallsList(calls)
+                const res = await api(url)
+                setCallsList(Array.isArray(res.calls) ? res.calls : [])
             }
         } catch (e: any) {
             setListErrorMessage(e.message || "Failed to load calls")
@@ -1364,14 +1289,6 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         const state = callState(call)
         const direction = callDirection(call)
 
-        console.debug("Telnyx callUpdate", {
-            id: callId(call),
-            recoveredCallId: recoveredCallId(call),
-            direction,
-            state,
-            telnyxIDs: call?.telnyxIDs
-        })
-
         // IMPORTANT: never globally stop the ringtone because another Telnyx
         // leg changed state. Only the matching incoming call can stop its ring.
         switch (state) {
@@ -1431,7 +1348,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         try {
             rtcCalls = client.getActiveCalls() || []
         } catch (e) {
-            console.warn("Could not inspect Telnyx active calls", e)
+            console.warn("Could not inspect Telnyx active calls")
             return
         }
 
@@ -1442,11 +1359,6 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
 
         if (inboundRinging) {
             if (!incomingCallRef.current || !sameCall(incomingCallRef.current, inboundRinging)) {
-                console.info("Recovered incoming Telnyx call from getActiveCalls()", {
-                    id: callId(inboundRinging),
-                    direction: callDirection(inboundRinging),
-                    state: callState(inboundRinging)
-                })
                 showIncoming(inboundRinging)
             } else if (!ringRequestedRef.current) {
                 startRinger(inboundRinging)
@@ -1584,7 +1496,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
 
             client.on("telnyx.error", (e: any) => {
                 if (clientRef.current !== client) return
-                console.error("telnyx.error", e)
+                console.error("Phone service error", { code: Number(e?.error?.code || e?.code) || undefined })
                 const telnyxError = e?.error || e
                 const code = Number(telnyxError?.code || e?.code)
                 const message = telnyxErrorMessage(telnyxError)
@@ -1642,7 +1554,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
 
             client.on("telnyx.warning", (warning: any) => {
                 if (clientRef.current !== client) return
-                console.warn("[TELNYX WARNING]", warning)
+                console.warn("Phone service warning", { code: String(warning?.code ?? "") })
                 if (warning?.code === 33007 || String(warning?.code) === "33007") {
                     setStatusDetail("Telnyx blocked a duplicate inbound answer (33007)")
                 }
@@ -1657,7 +1569,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
             await client.connect()
         } catch (e: any) {
             if (lifecycle.signal.aborted) return
-            console.error("Telnyx connection error:", e)
+            console.error("Telnyx connection error:")
             clientReadyRef.current = false
             setStatus("offline")
             setStatusDetail(e?.message || "Offline")
@@ -1704,9 +1616,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
 
                 const state = callState(currentIncoming)
                 if (state === "ringing" || state === "early" || !state) {
-                    console.error("[TELNYX] answer() returned but call is still ringing", {
-                        id, state, call: currentIncoming
-                    })
+                    console.error("Phone answer is still ringing", { state })
                     suppressRingForCallIdsRef.current.delete(id)
                     setStatusDetail("Answer was not accepted by Telnyx - check console warning/code")
                     setIsAnswering(false)
@@ -1714,7 +1624,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                 }
             }, 4000)
         } catch (e: any) {
-            console.error("Could not answer incoming call", e)
+            console.error("Could not answer incoming call")
             const message = friendlyMediaError(e)
             suppressRingForCallIdsRef.current.delete(id)
             setCallError(message)
@@ -1745,7 +1655,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                 await Promise.resolve(call.hangup())
             }
         } catch (e) {
-            console.error("Could not decline incoming call", e)
+            console.error("Could not decline incoming call")
             suppressRingForCallIdsRef.current.delete(id)
             if (incomingCallRef.current && sameCall(incomingCallRef.current, call)) {
                 startRinger(call)
@@ -1853,7 +1763,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
             showActive(call, "Calling…")
             setDialNumber("")
         } catch (err: any) {
-            console.warn("newCall error:", err)
+            console.warn("newCall error:")
             stopMediaStream(localStream)
             dialedNumberRef.current = ""
             const message = friendlyMediaError(err)
@@ -3197,7 +3107,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
 
                 {/* Footer Notice */}
                 <p className="text-center text-[11px] text-muted-foreground/80 py-2">
-                    Not for emergency calls: dial 999 from your mobile.
+                    Use your local emergency number from another phone in an emergency.
                 </p>
                     </div>
 

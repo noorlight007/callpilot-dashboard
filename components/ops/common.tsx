@@ -50,7 +50,7 @@ export function ErrorNotice({ error }: { error: unknown }) {
     <div role="alert" className="flex gap-2 rounded-lg border border-red-200 bg-red-50 dark:bg-red-950/30 dark:border-red-900 p-3 text-sm text-red-800 dark:text-red-300">
       <AlertCircle size={16} className="mt-0.5 shrink-0" />
       <div className="whitespace-pre-wrap">
-        {mfa ? "This action needs a fresh OTP-verified sign-in. Please sign out and sign in again." : e?.message ?? "Something went wrong"}
+        {mfa ? <>This action needs a fresh OTP-verified sign-in. <a className="underline" href="/login?reauth=1">Sign in with a new code</a>.</> : e?.message ?? "Something went wrong"}
         {!mfa && hint(e) && <div className="mt-1 text-xs opacity-80">{hint(e)}</div>}
       </div>
     </div>
@@ -184,36 +184,58 @@ function ConfirmBody({ busy, setBusy, onClose, onConfirm, confirmLabel }: { busy
   );
 }
 
-/** Poll one action until it reaches a terminal state, with backoff. */
+/** Poll the action endpoint with backoff, paused in background tabs and scoped to tenant/id. */
 export function useActionPoll(id: number | null, onDone?: (a: ActionEnvelope) => void, nonce = 0) {
   const { call, epoch, tenant } = useOps();
-  const [action, setAction] = useState<ActionEnvelope | null>(null);
+  const scopeKey = `${tenant}:${epoch}:${id}:${nonce}`;
+  const [state, setState] = useState<{ key: string; action: ActionEnvelope | null }>({ key: "", action: null });
   const done = useRef(onDone);
-  useEffect(() => {
-    done.current = onDone;
-  });
+  useEffect(() => { done.current = onDone; });
   useEffect(() => {
     if (id == null || tenant == null) return;
-    const ctl = new AbortController();
+    const controller = new AbortController();
     let delay = 1000;
-    let timer: ReturnType<typeof setTimeout>;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let finished = false;
+    let running = false;
     const step = async () => {
+      if (controller.signal.aborted || finished || running) return;
+      if (document.hidden) return;
+      running = true;
       try {
-        const a = await call<ActionEnvelope>(pilot(tenant!, `actions/${id}/`), { signal: ctl.signal });
-        setAction(a);
-        if (["succeeded", "failed", "dead_letter"].includes(a.status)) return done.current?.(a);
-        if (a.status === "awaiting_confirmation") return;
-      } catch (e: any) {
-        if (e?.name === "AbortError") return;
+        const action = await call<ActionEnvelope>(pilot(tenant, `actions/${id}/`), { signal: controller.signal });
+        if (controller.signal.aborted) return;
+        setState({ key: scopeKey, action });
+        if (["succeeded", "failed", "dead_letter"].includes(action.status)) {
+          finished = true;
+          done.current?.(action);
+        } else if (action.status === "awaiting_confirmation") finished = true;
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setState(previous => ({ key: scopeKey, action: {
+          ...(previous.key === scopeKey ? previous.action : null),
+          id, status: previous.key === scopeKey && previous.action ? previous.action.status : "queued",
+          poll_error: error instanceof Error ? error.message : "Unable to refresh action status.",
+        } }));
+      } finally {
+        running = false;
+        if (!controller.signal.aborted && !finished) {
+          delay = Math.min(delay * 1.5, 8000);
+          timer = setTimeout(step, delay);
+        }
       }
-      delay = Math.min(delay * 1.5, 8000);
-      timer = setTimeout(step, delay);
     };
-    step();
+    const onVisibility = () => {
+      if (timer) clearTimeout(timer);
+      if (!document.hidden) void step();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    void step();
     return () => {
-      ctl.abort();
-      clearTimeout(timer);
+      controller.abort();
+      if (timer) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [id, epoch, call, tenant, nonce]);
-  return action;
+  }, [id, scopeKey, call, tenant]);
+  return state.key === scopeKey ? state.action : null;
 }

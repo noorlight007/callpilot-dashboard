@@ -8,7 +8,8 @@ type Obj = Record<string, any>; // eslint-disable-line @typescript-eslint/no-exp
 
 /** Tenant id is the organisation's top-level integer `id` from `GET /organizations/me`. */
 export function tenantIdFrom(org: Obj | null | undefined): number {
-  return Number(org?.id);
+  const id = Number(org?.id);
+  return Number.isSafeInteger(id) && id > 0 ? id : NaN;
 }
 
 export function normalizeMe(raw: Obj): Me {
@@ -24,6 +25,10 @@ export interface SectionCap {
   delete: boolean;
   /** "delete" | "archive" | "unavailable" */
   deleteMode: string;
+  parent_required?: boolean;
+  parent_required_for_create?: boolean;
+  path_required?: boolean;
+  composite_id_for_get?: boolean;
 }
 
 /** `{sections: {name: {list,get,create,update,delete,delete_behavior}}}` */
@@ -40,8 +45,12 @@ export function normalizeCapabilities(raw: Obj | null | undefined): SectionCap[]
         get: !!r.get,
         create: !!r.create,
         update: !!r.update,
-        delete: !!r.delete && deleteMode !== "unavailable",
+        delete: deleteMode === "archive" || (!!r.delete && deleteMode === "delete"),
         deleteMode,
+        parent_required: !!r.parent_required,
+        parent_required_for_create: !!r.parent_required_for_create,
+        path_required: !!r.path_required,
+        composite_id_for_get: !!r.composite_id_for_get,
       };
     })
     .filter((r) => r.name);
@@ -81,7 +90,7 @@ export function normalizeConversation(raw: Obj | null | undefined): Obj | null {
 
 /** A message needs investigation when its status/result says so (there is no `review` field). */
 export function messageNeedsReview(m: Obj): boolean {
-  return /review|unknown/i.test(`${m.status ?? ""} ${typeof m.result === "string" ? m.result : JSON.stringify(m.result ?? "")}`);
+  return m.status === "review";
 }
 
 /** Both the calls list `caller_card` and the call-detail card carry `conversation_uid`. */
