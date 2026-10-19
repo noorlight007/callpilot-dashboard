@@ -8,9 +8,12 @@ const { NextResponse } = require('next/server');
 
 const originalFetch = global.fetch;
 const originalBase = process.env.API_BASE_URL;
+const originalOrigin = process.env.DASHBOARD_ORIGIN;
+delete process.env.DASHBOARD_ORIGIN;
 const originalNodeEnv = process.env.NODE_ENV;
 afterEach(() => {
   global.fetch = originalFetch;
+  if (originalOrigin === undefined) delete process.env.DASHBOARD_ORIGIN; else process.env.DASHBOARD_ORIGIN = originalOrigin;
   if (originalBase === undefined) delete process.env.API_BASE_URL; else process.env.API_BASE_URL = originalBase;
   if (originalNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = originalNodeEnv;
 });
@@ -33,6 +36,7 @@ function backend(initial = { cp_access: 'private-access', cp_refresh: 'private-r
     set: (name, value, options) => { values.set(name, value); writes.push({ name, value, options }); },
     delete: name => values.delete(name) };
   process.env.API_BASE_URL = 'https://django.example/api/v1';
+  delete process.env.DASHBOARD_ORIGIN;
   const api = source('lib/server/backend.ts', { 'next/headers': { cookies: async () => jar }, 'next/server': { NextResponse } });
   return { ...api, values, writes };
 }

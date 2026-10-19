@@ -35,11 +35,22 @@ export function upstreamBase(): string {
   return url.toString().replace(/\/$/, "");
 }
 
-/** Cookie-authenticated writes are accepted only from this dashboard's origin. */
+/** Compare with the public dashboard origin, including when a proxy uses an internal URL. */
 export function sameOrigin(request: Request): boolean {
   if (request.headers.get("sec-fetch-site") === "cross-site") return false;
-  const origin = request.headers.get("origin");
-  return !origin || origin === new URL(request.url).origin;
+  const configured = process.env.DASHBOARD_ORIGIN?.trim();
+  try {
+    const expected = new URL(configured || request.url);
+    // A configured origin is authoritative; never authorize arbitrary forwarded hosts.
+    if (configured && (
+      !["http:", "https:"].includes(expected.protocol) || expected.username || expected.password ||
+      expected.pathname !== "/" || expected.search || expected.hash
+    )) return false;
+    const origin = request.headers.get("origin");
+    return !origin || origin === expected.origin;
+  } catch {
+    return false;
+  }
 }
 
 export function json(value: unknown, status = 200) {

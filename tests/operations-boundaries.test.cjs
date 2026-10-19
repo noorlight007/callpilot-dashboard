@@ -9,8 +9,11 @@ const { NextResponse } = require('next/server');
 
 const originalFetch = global.fetch;
 const originalBase = process.env.API_BASE_URL;
+const originalOrigin = process.env.DASHBOARD_ORIGIN;
+delete process.env.DASHBOARD_ORIGIN;
 afterEach(() => {
   global.fetch = originalFetch;
+  if (originalOrigin === undefined) delete process.env.DASHBOARD_ORIGIN; else process.env.DASHBOARD_ORIGIN = originalOrigin;
   if (originalBase === undefined) delete process.env.API_BASE_URL;
   else process.env.API_BASE_URL = originalBase;
 });
@@ -38,6 +41,7 @@ function cookieJar(initial = initialCookies) {
 }
 function backend() {
   process.env.API_BASE_URL = 'https://django.example/api/v1';
+  delete process.env.DASHBOARD_ORIGIN;
   const context = new AsyncLocalStorage();
   const api = source('lib/server/backend.ts', {
     'next/headers': { cookies: async () => context.getStore() },
