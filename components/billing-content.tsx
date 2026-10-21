@@ -965,14 +965,15 @@ export function BillingContent({ blockedStep = null }: BillingContentProps) {
             const rawPrice = !isNaN(numPrice) ? numPrice : 0;
             const perRate = limit > 0 ? (rawPrice / limit).toFixed(2) : "1.99";
 
-            let topUpNote = "Top-up $4.45 per screening";
+            const topUpRate = parseFloat(plan.topup_rate);
+            const topUpNote = !isNaN(topUpRate) && topUpRate > 0
+                ? `Top-up $${topUpRate.toFixed(2)} per screening`
+                : "";
             let bestFor = "Getting started with AI screening.";
 
             if (key.includes("grow")) {
-                topUpNote = "Top-up $3.90 per screening";
                 bestFor = "Active hiring — 4x the volume at a lower rate per screening.";
             } else if (key.includes("pro")) {
-                topUpNote = "Top-up $2.95 per screening";
                 bestFor = "High-volume hiring — the lowest cost per screening.";
             }
 
@@ -991,7 +992,7 @@ export function BillingContent({ blockedStep = null }: BillingContentProps) {
                 bestFor: bestFor,
                 description: bestFor,
                 features: [
-                    topUpNote,
+                    ...(topUpNote ? [topUpNote] : []),
                     `BEST FOR: ${bestFor}`
                 ],
                 icon: key.includes("starter") ? Rocket : (key.includes("enterp") ? Building2 : Zap),

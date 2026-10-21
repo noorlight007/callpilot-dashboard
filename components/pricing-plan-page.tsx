@@ -42,6 +42,7 @@ interface PricingPlan {
     status: string
     des_list: string[]
     usage_fee_included: boolean
+    topup_rate?: string
 }
 
 interface PricingPlanPageProps {
@@ -224,6 +225,11 @@ export function PricingPlanPage({ featureUid }: PricingPlanPageProps) {
                                     </div>
                                     {!plan.usage_fee_included && (
                                         <p className="text-xs text-[#6B7280] mt-2 font-medium">+ Usage fee will have extra cost</p>
+                                    )}
+                                    {parseFloat(plan.topup_rate ?? "") > 0 && (
+                                        <p className="text-sm text-[#4B5563] mt-2 font-medium">
+                                            Top-up ${parseFloat(plan.topup_rate!).toFixed(2)} per screening
+                                        </p>
                                     )}
                                     <div className="w-full h-[1px] bg-[#EEF1F5] mt-4" />
                                 </div>
