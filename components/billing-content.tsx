@@ -104,16 +104,16 @@ const STATIC_AI_CALL_PLANS = [
 const STATIC_SCREENING_PLANS = [
     {
         name: "Starter",
-        price: "$395",
+        price: "$49",
         unit: " / month",
-        minutes: "100 screenings • $3.95 each",
-        screeningsNote: "100 screenings • $3.95 each",
-        topUpNote: "Top-up $4.45 per screening",
+        minutes: "25 screenings • $1.96 each",
+        screeningsNote: "25 screenings • $1.96 each",
+        topUpNote: "Top-up $2.49 per screening",
         bestFor: "Getting started with AI screening.",
         description: "Getting started with AI screening.",
         features: [
-            "100 screenings • $3.95 each",
-            "Top-up $4.45 per screening",
+            "25 screenings • $1.96 each",
+            "Top-up $2.49 per screening",
             "BEST FOR: Getting started with AI screening."
         ],
         icon: Rocket,
@@ -121,16 +121,16 @@ const STATIC_SCREENING_PLANS = [
     },
     {
         name: "Growth",
-        price: "$1,400",
+        price: "$299",
         unit: " / month",
-        minutes: "400 screenings • $3.50 each",
-        screeningsNote: "400 screenings • $3.50 each",
-        topUpNote: "Top-up $3.90 per screening",
+        minutes: "200 screenings • $1.50 each",
+        screeningsNote: "200 screenings • $1.50 each",
+        topUpNote: "Top-up $1.99 per screening",
         bestFor: "Active hiring — 4x the volume at a lower rate per screening.",
         description: "Active hiring — 4x the volume at a lower rate per screening.",
         features: [
-            "400 screenings • $3.50 each",
-            "Top-up $3.90 per screening",
+            "200 screenings • $1.50 each",
+            "Top-up $1.99 per screening",
             "BEST FOR: Active hiring — 4x the volume at a lower rate per screening."
         ],
         icon: Zap,
@@ -138,16 +138,16 @@ const STATIC_SCREENING_PLANS = [
     },
     {
         name: "Pro",
-        price: "$2,950",
+        price: "$999",
         unit: " / month",
-        minutes: "1,000 screenings • $2.95 each",
-        screeningsNote: "1,000 screenings • $2.95 each",
-        topUpNote: "Top-up $2.95 per screening",
+        minutes: "800 screenings • $1.25 each",
+        screeningsNote: "800 screenings • $1.25 each",
+        topUpNote: "Top-up $1.49 per screening",
         bestFor: "High-volume hiring — the lowest cost per screening.",
         description: "High-volume hiring — the lowest cost per screening.",
         features: [
-            "1,000 screenings • $2.95 each",
-            "Top-up $2.95 per screening",
+            "800 screenings • $1.25 each",
+            "Top-up $1.49 per screening",
             "BEST FOR: High-volume hiring — the lowest cost per screening."
         ],
         icon: Zap,
@@ -157,13 +157,13 @@ const STATIC_SCREENING_PLANS = [
         name: "Enterprise",
         price: "Custom Pricing",
         unit: "",
-        minutes: "2,000+ screenings",
-        screeningsNote: "2,000+ screenings",
+        minutes: "800+ screenings",
+        screeningsNote: "800+ screenings",
         topUpNote: "High-volume screening with custom terms",
         bestFor: "Large teams — integrations, volume, and terms scoped to you.",
         description: "Large teams — integrations, volume, and terms scoped to you.",
         features: [
-            "2,000+ screenings",
+            "800+ screenings",
             "High-volume screening with custom terms",
             "BEST FOR: Large teams — integrations, volume, and terms scoped to you."
         ],
@@ -259,6 +259,31 @@ export function BillingContent({ blockedStep = null }: BillingContentProps) {
 
 
     const tabs = ["Overview", "Payment methods", "Billing history"]
+
+
+    // Per-credit top-up rate for the org's current screening plan. Comes from the
+    // subscriptions API (topup_rate), falling back to the matching plan in the plan
+    // list. Stays 0 until the rate is known so we never quote a stale figure.
+    const screeningTopUpRate: number = (() => {
+        const fromSub = parseFloat(currentSubscription?.topup_rate);
+        if (!isNaN(fromSub) && fromSub > 0) return fromSub;
+        const planId = currentSubscription?.plan ?? orgData?.current_plan;
+        if (planId === undefined || planId === null) return 0;
+        const plan = fetchedPlans.find((p: any) =>
+            String(p.id) === String(planId) ||
+            String(p.name).toLowerCase() === String(planId).toLowerCase()
+        );
+        const fromPlan = parseFloat(plan?.topup_rate);
+        return !isNaN(fromPlan) && fromPlan > 0 ? fromPlan : 0;
+    })();
+
+    // Re-price a screening top-up already typed in if the rate arrives afterwards.
+    useEffect(() => {
+        if (topUpType !== "screening_credit" || !topUpMinutes) return;
+        const count = parseInt(topUpMinutes);
+        if (isNaN(count)) return;
+        setTopUpAmount((count * screeningTopUpRate).toFixed(2));
+    }, [screeningTopUpRate]);
 
     const fetchOrgData = async () => {
         try {
@@ -913,13 +938,13 @@ export function BillingContent({ blockedStep = null }: BillingContentProps) {
         name: "Enterprise",
         price: "Custom Pricing",
         unit: "",
-        minimumMinutes: "2,000+ screenings",
-        screeningsNote: "2,000+ screenings",
+        minimumMinutes: "800+ screenings",
+        screeningsNote: "800+ screenings",
         topUpNote: "High-volume screening with custom terms",
         bestFor: "Large teams — integrations, volume, and terms scoped to you.",
         description: "Large teams — integrations, volume, and terms scoped to you.",
         features: [
-            "2,000+ screenings",
+            "800+ screenings",
             "High-volume screening with custom terms",
             "Large teams — integrations, volume, and terms scoped to you."
         ],
@@ -965,14 +990,14 @@ export function BillingContent({ blockedStep = null }: BillingContentProps) {
             const rawPrice = !isNaN(numPrice) ? numPrice : 0;
             const perRate = limit > 0 ? (rawPrice / limit).toFixed(2) : "1.99";
 
-            let topUpNote = "Top-up $4.45 per screening";
+            let topUpNote = "Top-up $2.49 per screening";
             let bestFor = "Getting started with AI screening.";
 
             if (key.includes("grow")) {
-                topUpNote = "Top-up $3.90 per screening";
+                topUpNote = "Top-up $1.99 per screening";
                 bestFor = "Active hiring — 4x the volume at a lower rate per screening.";
             } else if (key.includes("pro")) {
-                topUpNote = "Top-up $2.95 per screening";
+                topUpNote = "Top-up $1.49 per screening";
                 bestFor = "High-volume hiring — the lowest cost per screening.";
             }
 
@@ -1270,7 +1295,7 @@ export function BillingContent({ blockedStep = null }: BillingContentProps) {
                                                                         return;
                                                                     }
                                                                     if (val === "screening_credit") {
-                                                                        setTopUpAmount((count * 3.45).toFixed(2));
+                                                                        setTopUpAmount((count * screeningTopUpRate).toFixed(2));
                                                                     } else if (val === "ai_call_minutes") {
                                                                         if (orgData?.top_up_min_per_dol) {
                                                                             const rate = parseFloat(orgData.top_up_min_per_dol);
@@ -1382,7 +1407,7 @@ export function BillingContent({ blockedStep = null }: BillingContentProps) {
                                                                             if (isNaN(count)) return;
 
                                                                             setTopUpMinutes(count.toString());
-                                                                            const total = (count * 3.45).toFixed(2);
+                                                                            const total = (count * screeningTopUpRate).toFixed(2);
                                                                             setTopUpAmount(total);
                                                                         }}
                                                                         placeholder="Enter credits"
@@ -1399,7 +1424,7 @@ export function BillingContent({ blockedStep = null }: BillingContentProps) {
                                                                     <div className="flex items-center gap-2">
                                                                         <Info size={14} className="text-gray-400" />
                                                                         <p className="text-[13px] text-gray-500 dark:text-gray-400 font-medium">
-                                                                            Cost per screening call: $3.45
+                                                                            Cost per screening call: ${screeningTopUpRate.toFixed(2)}
                                                                         </p>
                                                                     </div>
                                                                 </div>
