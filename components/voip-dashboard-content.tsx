@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { useRouter } from "next/navigation"
+import { apiRequest } from "@/services/jigsaw-service"
+import { BUSINESS_PHONE_READY, BUSINESS_PHONE_READY_ATTRIBUTE, isBusinessPhonePrefill, normalizeBusinessPhoneNumber } from "@/components/jigsaw/business-phone-link"
 import { BASE_URL } from "@/lib/baseUrl"
 import { fetchTelnyxToken, loadTelnyxSdk } from "@/lib/voip-connection"
 import { cookieUtils } from "@/services/auth-service"
@@ -338,6 +340,29 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
     const callerLookupRequestRef = useRef<number>(0)
     const callerLookupAbortRef = useRef<AbortController | null>(null)
     const baseTitleRef = useRef<string>(typeof document !== "undefined" ? document.title : "")
+
+    // Workspace links fill the dial box in this independent window. They never dial.
+    useEffect(() => {
+        const prefill = (number: string) => {
+            if (activeCallRef.current || incomingCallRef.current || isDialingRef.current) return;
+            setDialNumber(number);
+            setMobilePanel("phone");
+        };
+        const requested = normalizeBusinessPhoneNumber(new URLSearchParams(window.location.search).get("dial"));
+        if (requested) prefill(requested);
+        const receivePrefill = (event: MessageEvent<unknown>) => {
+            if (event.origin !== window.location.origin || !isBusinessPhonePrefill(event.data)) return;
+            try { window.focus(); } catch { /* Browser focus policy does not affect the call. */ }
+            prefill(event.data.number);
+        };
+        window.addEventListener("message", receivePrefill);
+        document.documentElement.dataset[BUSINESS_PHONE_READY_ATTRIBUTE] = "1";
+        try { window.opener?.postMessage({ type: BUSINESS_PHONE_READY, version: 1 }, window.location.origin); } catch { /* The opener may have closed. */ }
+        return () => {
+            window.removeEventListener("message", receivePrefill);
+            delete document.documentElement.dataset[BUSINESS_PHONE_READY_ATTRIBUTE];
+        };
+    }, []);
 
     // Keep refs synchronized
     useEffect(() => {
@@ -1831,6 +1856,8 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
             dialedNumberRef.current = target
             setStatusDetail("Starting call...")
 
+            const session = await apiRequest<{ call_session_proof: string }>("/voice/api/token/", { method: "POST" })
+            if (!session.call_session_proof) throw new Error("The phone service did not authorize this call. Reconnect your business phone.")
             const call = client.newCall({
                 destinationNumber: target,
                 remoteCallerName: target,
@@ -1838,7 +1865,10 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                 remoteElement: "remoteAudio",
                 audio: true,
                 localStream,
-                customHeaders: [{ name: "X-Voice-Ext", value: cfgRef.current.extensionUid || extension || "" }]
+                customHeaders: [
+                    { name: "X-Voice-Ext", value: cfgRef.current.extensionUid || extension || "" },
+                    { name: "X-CallPilot-Session", value: session.call_session_proof }
+                ]
             })
 
             if (!call) {

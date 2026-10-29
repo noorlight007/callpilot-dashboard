@@ -751,7 +751,7 @@ export default function ActivationPage() {
         if (org.country === "Australia" || org.country === "Ireland" || org.country === "Singapore" || org.country === "United Kingdom" || org.country === "New Zealand") {
             try {
                 setIsSaving(true);
-                const res = await profileService.getOrganization();
+                const res = await profileService.provisionMessaging();
                 if (res.data) {
                     setTwilioDetails({
                         subaccount_sid: res.data.twilio_subaccount_sid,
@@ -2005,10 +2005,10 @@ export default function ActivationPage() {
                                 <div className="flex justify-end pt-6">
                                     <Button
                                         onClick={handleNextStep1}
-                                        disabled={["India", "Canada", "United States of America"].includes(org.country) && (isSaving || !isComplianceAgreed || !isPhoneBillingAgreed)}
+                                        disabled={isSaving || (["India", "Canada", "United States of America"].includes(org.country) && (!isComplianceAgreed || !isPhoneBillingAgreed))}
                                         className="bg-primary hover:bg-primary/90 text-white px-8"
                                     >
-                                        {["India", "Canada", "United States of America"].includes(org.country) ? (isSaving ? "Submitting..." : "Submit") : "Next"}
+                                        {["India", "Canada", "United States of America"].includes(org.country) ? (isSaving ? "Submitting..." : "Submit") : (isSaving ? "Setting up..." : "Set up business line")}
                                     </Button>
                                 </div>
                             </div>

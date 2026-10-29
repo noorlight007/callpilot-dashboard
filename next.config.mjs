@@ -21,6 +21,14 @@ const nextConfig = {
         ],
       },
       {
+        source: "/dashboard/ai-jigsaw/:path*",
+        headers: [{ key: "Cache-Control", value: "private, no-store, max-age=0" }],
+      },
+      {
+        source: "/api/voice/:path*",
+        headers: [{ key: "Cache-Control", value: "private, no-store, max-age=0" }],
+      },
+      {
         source: "/((?!login).*)",
         headers: [
           {

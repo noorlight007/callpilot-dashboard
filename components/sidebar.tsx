@@ -80,11 +80,13 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
 
   const menuItems = isVoipUser
     ? [
+      { icon: Layers, label: 'AI Jigsaw', href: '/dashboard/ai-jigsaw', isBold: true },
       { label: 'AI Flows', isHeader: true },
       { icon: Shuffle, label: 'AI Call Builder', href: '/dashboard/phone-call-flows', isBold: true },
     ]
     : [
-      { icon: LayoutGrid, label: 'AI Control Centre', href: '/dashboard', isBold: true },
+      { icon: LayoutGrid, label: 'AI Control Centre', href: '/dashboard/control-centre', isBold: true },
+      { icon: Layers, label: 'AI Jigsaw', href: '/dashboard/ai-jigsaw', isBold: true },
       { label: 'Integrations', isHeader: true },
       { icon: Globe, label: 'Connect ATS', href: '/dashboard/connect-ats', isBold: true },
       { icon: Phone, label: 'Business Phone Numbers', href: '/dashboard/phone-numbers', isBold: true },
@@ -169,7 +171,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                   </div>
                 );
               }
-              const isActive = pathname === item.href;
+              const isActive = pathname === item.href || (item.href === '/dashboard/ai-jigsaw' && pathname.startsWith('/dashboard/ai-jigsaw/'));
               return (
                 <Link
                   key={index}

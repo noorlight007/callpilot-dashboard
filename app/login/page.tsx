@@ -27,6 +27,7 @@ export default function SignInPage() {
         password: "",
     });
     const [otp, setOtp] = useState("");
+    const [otpChallenge, setOtpChallenge] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const [isCheckingSession, setIsCheckingSession] = useState(true);
     const [rememberMe, setRememberMe] = useState(false);
@@ -103,6 +104,7 @@ export default function SignInPage() {
 
             if (response.ok) {
                 if (data.otp_required) {
+                    setOtpChallenge(data.otp_challenge || "");
                     setShowSuccessDialog(true);
                 } else {
                     // Directly login if OTP is not required
@@ -141,7 +143,7 @@ export default function SignInPage() {
         setError(null);
 
         try {
-            const response = await authService.verifyOtp(otp);
+            const response = await authService.verifyOtp(otp, otpChallenge);
             const data = await response.json();
 
             if (response.ok) {

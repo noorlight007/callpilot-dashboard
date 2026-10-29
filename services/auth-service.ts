@@ -10,11 +10,11 @@ export const authService = {
         return response;
     },
 
-    async verifyOtp(otp: string) {
+    async verifyOtp(otp: string, challenge: string) {
         const response = await fetch(`${API_BASE_URL}/token/verify-otp`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ otp_code: otp }),
+            body: JSON.stringify({ otp_code: otp, otp_challenge: challenge }),
         });
         return response;
     },
