@@ -1,84 +1,17 @@
-import { NextResponse } from "next/server";
+import { NextResponse } from 'next/server';
+import { BASE_URL } from '@/lib/baseUrl';
 
+// The backend owns tenant credentials and validates the consultant/device. Never
+// mint provider credentials from an unauthenticated frontend fallback endpoint.
 export async function POST(request: Request) {
-    try {
-        const apiKey = process.env.TELNYX_API_KEY || process.env.NEXT_PUBLIC_TELNYX_API_KEY;
-        const connectionId = process.env.TELNYX_CREDENTIAL_CONNECTION_ID || process.env.NEXT_PUBLIC_TELNYX_CREDENTIAL_CONNECTION_ID;
-
-        if (!apiKey) {
-            return NextResponse.json(
-                { error: "Telnyx API key not configured on server" },
-                { status: 500 }
-            );
-        }
-
-        // 1. Create a telephony credential with connection_id
-        const credRes = await fetch("https://api.telnyx.com/v2/telephony_credentials", {
-            method: "POST",
-            headers: {
-                "Authorization": `Bearer ${apiKey}`,
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-                connection_id: connectionId || "3054388666689389802"
-            })
-        });
-
-        if (!credRes.ok) {
-            const errData = await credRes.json().catch(() => ({}));
-            return NextResponse.json(
-                { error: errData.errors?.[0]?.detail || "Failed to create telephony credential" },
-                { status: credRes.status }
-            );
-        }
-
-        const credData = await credRes.json();
-        const credId = credData.data?.id;
-
-        if (!credId) {
-            return NextResponse.json(
-                { error: "No credential ID returned from Telnyx" },
-                { status: 500 }
-            );
-        }
-
-        // 2. Generate a WebRTC login token for this credential
-        const tokenRes = await fetch(`https://api.telnyx.com/v2/telephony_credentials/${credId}/token`, {
-            method: "POST",
-            headers: {
-                "Authorization": `Bearer ${apiKey}`,
-                "Content-Type": "application/json",
-            }
-        });
-
-        if (!tokenRes.ok) {
-            const errData = await tokenRes.json().catch(() => ({}));
-            return NextResponse.json(
-                { error: errData.errors?.[0]?.detail || "Failed to generate WebRTC token" },
-                { status: tokenRes.status }
-            );
-        }
-
-        const tokenText = await tokenRes.text();
-        // Clean up token text if wrapped in quotes or JSON
-        let token = tokenText.trim();
-        try {
-            const parsed = JSON.parse(tokenText);
-            if (typeof parsed === "string") token = parsed;
-            else if (parsed.token) token = parsed.token;
-        } catch (e) {}
-
-        return NextResponse.json({
-            token,
-            credential_id: credId,
-            sip_username: credData.data?.sip_username
-        });
-
-    } catch (error: any) {
-        console.error("Telnyx token generation error:", error);
-        return NextResponse.json(
-            { error: error.message || "Internal server error" },
-            { status: 500 }
-        );
-    }
+  const access = request.headers.get('cookie')?.split(';').map((part) => part.trim()).find((part) => part.startsWith('access='))?.slice(7);
+  const authorization = request.headers.get('authorization') || (access ? `Bearer ${access}` : '');
+  if (!authorization) return NextResponse.json({ error: 'Sign in to your consultant account.' }, { status: 401, headers: { 'Cache-Control': 'private, no-store' } });
+  try {
+    const response = await fetch(`${BASE_URL.replace(/\/$/, '')}/voice/api/token/`, { method: 'POST', headers: { Authorization: authorization }, cache: 'no-store', signal: AbortSignal.timeout(15000) });
+    const data = await response.json().catch(() => ({ error: 'The business phone service is unavailable.' }));
+    return NextResponse.json(data, { status: response.status, headers: { 'Cache-Control': 'private, no-store' } });
+  } catch {
+    return NextResponse.json({ error: 'The business phone service is unavailable.' }, { status: 502, headers: { 'Cache-Control': 'private, no-store' } });
+  }
 }

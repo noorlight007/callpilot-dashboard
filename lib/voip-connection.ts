@@ -1,5 +1,8 @@
 type TelnyxConstructor = new (options: Record<string, unknown>) => any
 
+let voiceSessionProof = ""
+export const getVoiceSessionProof = () => voiceSessionProof
+
 let sdkPromise: Promise<TelnyxConstructor> | null = null
 
 const getTelnyxConstructor = (): TelnyxConstructor | null => {
@@ -112,6 +115,7 @@ export const fetchTelnyxToken = async (tokenUrl: string, options: RequestInit): 
                     response.status
                 )
             }
+            voiceSessionProof = typeof data?.call_session_proof === "string" ? data.call_session_proof : ""
             const token = normalizeTelnyxToken(data ?? body)
             // A successful HTML/error response is not a login credential.
             if (!token || token.split(".").length !== 3 || /[\s<>]/.test(token)) {
@@ -137,7 +141,7 @@ export const fetchTelnyxToken = async (tokenUrl: string, options: RequestInit): 
         // Creating a different credential through the fallback cannot fix them.
         if (error instanceof VoiceTokenError && [401, 403, 409].includes(error.status)) throw error
         try {
-            return await requestToken("/api/voice/token", { signal: options.signal })
+            return await requestToken("/api/voice/token", { ...options, signal: options.signal })
         } catch (fallbackError) {
             if (options.signal?.aborted) throw fallbackError
             const primaryMessage = error instanceof Error ? error.message : "Phone login failed"

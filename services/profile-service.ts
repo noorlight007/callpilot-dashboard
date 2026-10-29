@@ -17,6 +17,9 @@ api.interceptors.request.use((config) => {
 });
 
 export const profileService = {
+    async provisionMessaging() {
+        return api.post("/organizations/provision-messaging", { confirm: true });
+    },
     async getProfile() {
         return api.get("/me/");
     },
