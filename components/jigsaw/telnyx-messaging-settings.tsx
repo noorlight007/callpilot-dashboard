@@ -12,7 +12,8 @@ interface MessagingConnection {
   api_key_configured: boolean;
   platform_available: boolean;
   signup_available: boolean;
-  existing_account_available: boolean;
+  existing_account_available?: boolean;
+  existing_account_error?: { code: string; detail: string } | null;
   whatsapp_connection_method: 'hosted' | 'telnyx';
   sms_from: string;
   messaging_profile_id: string;
@@ -67,10 +68,17 @@ export function TelnyxMessagingSettings() {
   const [loading, setLoading] = useState(true);
   const [failure, setFailure] = useState('');
   const [feedback, setFeedback] = useState('');
+  const [accountTest, setAccountTest] = useState<{ message: string; error: boolean } | null>(null);
+  const accountTestResult = useRef<HTMLDivElement>(null);
   const [disconnecting, setDisconnecting] = useState(false);
+
+  useEffect(() => {
+    if (accountTest) accountTestResult.current?.scrollIntoView({ block: 'nearest' });
+  }, [accountTest]);
 
   const applyConnection = useCallback((value: MessagingConnection) => { setConnection(value); setDraft(value); }, []);
   const resetProviderResources = () => {
+    setAccountTest(null);
     setWaNumbers([]); setSmsNumbers([]); setNumbersLoaded(false);
     setAccounts([]); setAccountsLoaded(false); setSelectedAccount(''); setOwnershipConfirmed(false);
     setAuthorizationUrl(''); setSessions([]);
@@ -95,8 +103,11 @@ export function TelnyxMessagingSettings() {
   }, [applyConnection]);
 
   const run = async (action: string, task: () => Promise<void>) => {
-    setBusy(action); setFailure(''); setFeedback('');
-    try { await task(); } catch (error) { setFailure(errorText(error)); } finally { setBusy(''); }
+    setBusy(action); setFailure(''); setFeedback(''); setAccountTest(null);
+    try { await task(); } catch (error) {
+      if (action === 'test') setAccountTest({ message: errorText(error), error: true });
+      else setFailure(errorText(error));
+    } finally { setBusy(''); }
   };
   const loadNumbers = async () => {
     const [whatsapp, sms] = await Promise.allSettled([
@@ -173,7 +184,10 @@ export function TelnyxMessagingSettings() {
       await loadNumbers();
     });
   };
-  const change = <K extends keyof MessagingConnection>(key: K, value: MessagingConnection[K]) => setDraft((current) => current ? { ...current, [key]: value } : current);
+  const change = <K extends keyof MessagingConnection>(key: K, value: MessagingConnection[K]) => {
+    setAccountTest(null);
+    setDraft((current) => current ? { ...current, [key]: value } : current);
+  };
   const credentialModeSaved = !!connection && draft?.credential_mode === connection.credential_mode && !apiKey.trim();
   const chooseConnectionMethod = (method: WhatsAppConnectionMethod) => {
     setConnectionMethod(method); setSelectedAccount(''); setOwnershipConfirmed(false);
@@ -192,11 +206,18 @@ export function TelnyxMessagingSettings() {
         <form className="jigsaw-form" id="telnyx-connection-settings" onSubmit={save}>
           <div className="jigsaw-form-grid"><Field title="Telnyx service" hint="Use the service provided by CallPilot, or connect a Telnyx account owned by your agency."><select className="jigsaw-input" value={draft.credential_mode} disabled={!!busy} onChange={(event) => { change('credential_mode', event.target.value as 'platform' | 'own'); setApiKey(''); resetProviderResources(); }}><option value="platform">CallPilot Telnyx service</option><option value="own">My agency’s Telnyx account</option></select></Field><div className="jigsaw-field">Connection access<div className="jigsaw-inline"><ReadyBadge ready={draft.credential_mode === 'platform' ? connection.platform_available : connection.credential_mode === 'own' && connection.api_key_configured}>{draft.credential_mode === 'platform' ? connection.platform_available ? 'CallPilot service available' : 'Administrator setup needed' : connection.credential_mode === 'own' && connection.api_key_configured ? 'Agency key stored' : 'Add your agency API key'}</ReadyBadge></div><small>API keys are encrypted on the server and are never returned to the browser.</small></div></div>
           {draft.credential_mode === 'platform' && !connection.platform_available && <Notice>Your CallPilot administrator needs to configure the Telnyx messaging service. You can also use your agency’s own Telnyx account.</Notice>}
-          {draft.credential_mode === 'own' && <div className="jigsaw-form-grid"><Field title="Agency Telnyx API key" hint="Create this in your agency’s Telnyx Mission Control account. Leave empty to keep the stored key."><input className="jigsaw-input" type="password" autoComplete="new-password" value={apiKey} disabled={!!busy} placeholder="Add or replace your API key" onChange={(event) => setApiKey(event.target.value)} /></Field><div className="jigsaw-inline items-end"><button className="jigsaw-btn" type="button" disabled={!!busy || !apiKey.trim()} onClick={() => void run('credentials', async () => { applyConnection(await jigsaw<MessagingConnection>('telnyx/credentials/', 'POST', { api_key: apiKey.trim() })); setApiKey(''); resetProviderResources(); setFeedback('Agency API key stored securely. Save the matching public key, then test access before enabling messaging.'); })}><ShieldCheck size={14} /> Save agency API key</button></div></div>}
+          {draft.credential_mode === 'own' && <div className="jigsaw-form-grid"><Field title="Agency Telnyx API key" hint="Create this in your agency’s Telnyx Mission Control account. Leave empty to keep the stored key."><input className="jigsaw-input" type="password" autoComplete="new-password" value={apiKey} disabled={!!busy} placeholder="Add or replace your API key" onChange={(event) => { setApiKey(event.target.value); setAccountTest(null); }} /></Field><div className="jigsaw-inline items-end"><button className="jigsaw-btn" type="button" disabled={!!busy || !apiKey.trim()} onClick={() => void run('credentials', async () => { applyConnection(await jigsaw<MessagingConnection>('telnyx/credentials/', 'POST', { api_key: apiKey.trim() })); setApiKey(''); resetProviderResources(); setFeedback('Agency API key stored securely. Save the matching public key, then test access before enabling messaging.'); })}><ShieldCheck size={14} /> Save agency API key</button></div></div>}
           <details className="jigsaw-messaging-advanced"><summary>Provider settings for your administrator</summary><div className="jigsaw-form-grid"><Field title="Telnyx messaging profile ID" hint="The profile used by the selected SMS sender."><input className="jigsaw-input" value={draft.messaging_profile_id || ''} disabled={!!busy} onChange={(event) => change('messaging_profile_id', event.target.value)} /></Field><Field title="Telnyx webhook public key" hint={draft.credential_mode === 'platform' ? 'Your CallPilot administrator configures the platform public key on the backend.' : 'The public signature-verification key from the same Telnyx account as your API key. This is not an API key.'}><input className="jigsaw-input" value={draft.webhook_public_key || ''} disabled={!!busy || draft.credential_mode === 'platform'} onChange={(event) => change('webhook_public_key', event.target.value)} /></Field></div></details>
           <label className="jigsaw-inline jigsaw-small"><input type="checkbox" checked={draft.enabled} disabled={!!busy} onChange={(event) => change('enabled', event.target.checked)} />Enable Telnyx messaging for this agency</label>
           {!connection.enabled && <p className="jigsaw-small">For first-time setup, save and test access first, select your verified sender below, then enable messaging and save again.</p>}
-          <div className="jigsaw-inline"><button className="jigsaw-btn jigsaw-btn-primary" disabled={!!busy}>{busy === 'save' ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Save connection</button><button className="jigsaw-btn" type="button" disabled={!!busy || !credentialModeSaved} onClick={() => void run('test', async () => { applyConnection(await jigsaw<MessagingConnection>('telnyx/test/', 'POST', {})); setFeedback('Telnyx account access checked. Sender readiness is shown separately.'); })}><RefreshCw size={14} /> Test account access</button></div>
+          <div className="jigsaw-inline"><button className="jigsaw-btn jigsaw-btn-primary" disabled={!!busy}>{busy === 'save' ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Save connection</button><button className="jigsaw-btn" type="button" disabled={!!busy || !credentialModeSaved} onClick={() => void run('test', async () => {
+            const value = await jigsaw<MessagingConnection>('telnyx/test/', 'POST', {});
+            applyConnection(value);
+            setAccountTest({ message: value.existing_account_error?.code === 'whatsapp_shared_account_not_allowed'
+              ? 'Telnyx account access checked. Credentials accepted, but this key is configured as the shared CallPilot service. Existing WhatsApp account loading is blocked; see the guidance below.'
+              : 'Telnyx account access checked. Credentials accepted. Sender readiness is shown separately.', error: false });
+          })}>{busy === 'test' ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}{busy === 'test' ? ' Checking account access…' : ' Test account access'}</button></div>
+          {accountTest && <div ref={accountTestResult}><Notice error={accountTest.error}>{accountTest.message}</Notice></div>}
         </form>
 
         <div className="jigsaw-messaging-section">
@@ -222,7 +243,13 @@ export function TelnyxMessagingSettings() {
             {sessions.length > 0 && <div className="jigsaw-signup-sessions">{sessions.slice(0, 3).map((session) => <div className="jigsaw-rule" key={session.uid}><div><strong>{session.signup_type === 'coexistence' ? 'Business App connection' : 'Business Account connection'}</strong><p>{label(session.status)}{session.state ? ` · ${label(session.state)}` : ''} · Started {dateLabel(session.created_at)}</p></div><button className="jigsaw-btn" disabled={!!busy || !credentialModeSaved} onClick={() => refreshSignup(session)}>{busy === `session-${session.uid}` ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Check status</button></div>)}</div>}
           </> : <>
             <Notice>First connect WhatsApp in your agency’s <a className="jigsaw-link" href="https://portal.telnyx.com/" target="_blank" rel="noopener noreferrer">Telnyx portal <ExternalLink size={12} /></a>. Above, choose <strong>My agency’s Telnyx account</strong>, save its API key and matching webhook public key, then load your accounts here. This option uses your existing connection and does not start Meta signup.</Notice>
-            {!connection.existing_account_available && <p className="jigsaw-small">Save the credentials for your agency’s own Telnyx account above to load its WhatsApp accounts.</p>}
+            {credentialModeSaved && connection.existing_account_available !== true && <Notice error>
+              {typeof connection.existing_account_available !== 'boolean' ? <><strong>The messaging backend needs updating.</strong><p>This server did not return WhatsApp account-loading eligibility. Ask your administrator to deploy and restart the matching CallPilot backend, then refresh this page.</p></>
+                : connection.existing_account_error?.code === 'whatsapp_shared_account_not_allowed' ? <><strong>Your saved key matches the shared CallPilot service key.</strong><p>Use <strong>CallPilot Telnyx service → Connect from CallPilot</strong>, or save credentials for your agency’s separate Telnyx account. If this Telnyx account is used only by your agency, ask your platform administrator to remove its shared-service configuration first.</p><p>Testing account access checks the credentials; it does not authorize importing accounts from the shared service.</p></>
+                  : connection.existing_account_error?.detail || (connection.credential_mode === 'own' && connection.api_key_configured
+                    ? 'Your key is stored, but the backend has not allowed existing WhatsApp account loading. Ask your administrator to check whether it matches the shared CallPilot service key and deploy the latest backend for the exact reason.'
+                    : 'Select My agency’s Telnyx account and save its API key above to load its WhatsApp accounts.')}
+            </Notice>}
             {!credentialModeSaved && <p className="jigsaw-small">Save your selected Telnyx service and any new API key before continuing.</p>}
             <div><button className="jigsaw-btn" disabled={!!busy || !connection.existing_account_available || !credentialModeSaved} onClick={loadAccounts}>{busy === 'accounts' ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Load Telnyx WhatsApp accounts</button></div>
             {accountsLoaded && accounts.length === 0 && <Notice>No WhatsApp Business Accounts were returned. Check that WhatsApp onboarding is complete in this Telnyx account and that its API key has access.</Notice>}
