@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Check, CheckCircle2, ExternalLink, Info, Loader2, MessageCircle, RefreshCw, ShieldCheck, Unplug } from 'lucide-react';
 import { jigsaw, results, type AgencySettings, type JsonRecord } from '@/services/jigsaw-service';
 
@@ -12,6 +12,8 @@ interface MessagingConnection {
   api_key_configured: boolean;
   platform_available: boolean;
   signup_available: boolean;
+  existing_account_available: boolean;
+  whatsapp_connection_method: 'hosted' | 'telnyx';
   sms_from: string;
   messaging_profile_id: string;
   whatsapp_from: string;
@@ -25,9 +27,13 @@ interface MessagingConnection {
   last_error: string;
 }
 interface SignupSession { uid: string; signup_type: string; status: string; state: string; waba_id: string; expires_at: string; created_at: string; }
+interface WhatsAppAccount { waba_id: string; name: string; status: string; }
+type WhatsAppConnectionMethod = 'hosted' | 'telnyx';
 interface SenderNumber { phone_number: string; display_name?: string; status: string; ready?: boolean; coexistence_state?: string; messaging_profile_id?: string; }
 interface ProviderTemplate { id: string; name: string; language: string; status: string; components?: { type: string; text?: string }[]; }
 const WORKFLOWS = ['document_request', 'shift_offer', 'missed_call_reply', 'document_chaser', 'kid', 'toe', 'shift_filled', 'order_alert'];
+const ACCOUNT_CHANGED_EVENT = 'jigsaw-telnyx-account-changed';
+const notifyAccountChanged = () => window.dispatchEvent(new Event(ACCOUNT_CHANGED_EVENT));
 const label = (value: string) => value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 const dateLabel = (value?: string | null) => value ? new Date(value).toLocaleString() : 'Not checked yet';
 const errorText = (error: unknown) => error instanceof Error ? error.message : 'Unable to complete this action. Please try again.';
@@ -51,6 +57,11 @@ export function TelnyxMessagingSettings() {
   const [numbersLoaded, setNumbersLoaded] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [signupType, setSignupType] = useState<'standard' | 'coexistence'>('standard');
+  const [connectionMethod, setConnectionMethod] = useState<WhatsAppConnectionMethod>('hosted');
+  const [accounts, setAccounts] = useState<WhatsAppAccount[]>([]);
+  const [accountsLoaded, setAccountsLoaded] = useState(false);
+  const [selectedAccount, setSelectedAccount] = useState('');
+  const [ownershipConfirmed, setOwnershipConfirmed] = useState(false);
   const [authorizationUrl, setAuthorizationUrl] = useState('');
   const [busy, setBusy] = useState('');
   const [loading, setLoading] = useState(true);
@@ -59,18 +70,25 @@ export function TelnyxMessagingSettings() {
   const [disconnecting, setDisconnecting] = useState(false);
 
   const applyConnection = useCallback((value: MessagingConnection) => { setConnection(value); setDraft(value); }, []);
+  const resetProviderResources = () => {
+    setWaNumbers([]); setSmsNumbers([]); setNumbersLoaded(false);
+    setAccounts([]); setAccountsLoaded(false); setSelectedAccount(''); setOwnershipConfirmed(false);
+    setAuthorizationUrl(''); setSessions([]);
+    notifyAccountChanged();
+  };
   const reload = useCallback(async () => {
     const [value, signup] = await Promise.all([
       jigsaw<MessagingConnection>('telnyx/connection/'),
       jigsaw<{ results: SignupSession[] }>('telnyx/whatsapp/sessions/'),
     ]);
     applyConnection(value);
+    setConnectionMethod(value.whatsapp_connection_method === 'telnyx' ? 'telnyx' : 'hosted');
     setSessions(results<SignupSession>(signup));
   }, [applyConnection]);
   useEffect(() => {
     let active = true;
     Promise.all([jigsaw<MessagingConnection>('telnyx/connection/'), jigsaw<{ results: SignupSession[] }>('telnyx/whatsapp/sessions/')])
-      .then(([value, signup]) => { if (active) { applyConnection(value); setSessions(results<SignupSession>(signup)); } })
+      .then(([value, signup]) => { if (active) { applyConnection(value); setConnectionMethod(value.whatsapp_connection_method === 'telnyx' ? 'telnyx' : 'hosted'); setSessions(results<SignupSession>(signup)); } })
       .catch((error) => { if (active) setFailure(errorText(error)); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -95,13 +113,15 @@ export function TelnyxMessagingSettings() {
     event?.preventDefault();
     if (!draft) return;
     void run('save', async () => {
-      applyConnection(await jigsaw<MessagingConnection>('telnyx/connection/', 'PATCH', {
+      const value = await jigsaw<MessagingConnection>('telnyx/connection/', 'PATCH', {
         enabled: draft.enabled,
         credential_mode: draft.credential_mode,
         sms_from: draft.sms_from,
         messaging_profile_id: draft.messaging_profile_id,
         webhook_public_key: draft.webhook_public_key,
-      }));
+      });
+      if (value.credential_mode !== connection?.credential_mode) resetProviderResources();
+      applyConnection(value);
       setFeedback('Telnyx settings saved. Readiness below reflects the verified connection.');
     });
   };
@@ -126,54 +146,111 @@ export function TelnyxMessagingSettings() {
   const refreshSignup = (session: SignupSession) => void run(`session-${session.uid}`, async () => {
     const response = await jigsaw<{ session: SignupSession; connection: MessagingConnection }>(`telnyx/whatsapp/sessions/${encodeURIComponent(session.uid)}/refresh/`, 'POST', {});
     applyConnection(response.connection);
+    setConnectionMethod('hosted');
+    setAccounts([]); setAccountsLoaded(false); setSelectedAccount(''); setOwnershipConfirmed(false);
+    notifyAccountChanged();
     setSessions((current) => current.map((item) => item.uid === response.session.uid ? response.session : item));
     setAuthorizationUrl('');
     setFeedback('Signup status checked. Refresh the available numbers and select your verified WhatsApp sender.');
     await loadNumbers();
   });
+  const loadAccounts = () => void run('accounts', async () => {
+    // Discard earlier choices before reloading so an old account cannot be submitted after a failed refresh.
+    setAccounts([]); setAccountsLoaded(false); setSelectedAccount(''); setOwnershipConfirmed(false);
+    const response = await jigsaw<{ results: WhatsAppAccount[] }>('telnyx/whatsapp/accounts/');
+    setAccounts(results<WhatsAppAccount>(response));
+    setAccountsLoaded(true);
+  });
+  const connectExistingAccount = () => {
+    if (!selectedAccount || !ownershipConfirmed || !accounts.some((account) => account.waba_id === selectedAccount)) return;
+    void run('connect-account', async () => {
+      const value = await jigsaw<MessagingConnection>('telnyx/whatsapp/accounts/select/', 'POST', { waba_id: selectedAccount, ownership_confirmed: true });
+      applyConnection(value);
+      setConnectionMethod('telnyx'); setSessions([]); setAuthorizationUrl(''); setOwnershipConfirmed(false);
+      notifyAccountChanged();
+      setWaNumbers([]); setSmsNumbers([]); setNumbersLoaded(false);
+      setFeedback('WhatsApp account verified in Telnyx. Select your ready business number below, then enable messaging and save.');
+      await loadNumbers();
+    });
+  };
   const change = <K extends keyof MessagingConnection>(key: K, value: MessagingConnection[K]) => setDraft((current) => current ? { ...current, [key]: value } : current);
+  const credentialModeSaved = !!connection && draft?.credential_mode === connection.credential_mode && !apiKey.trim();
+  const chooseConnectionMethod = (method: WhatsAppConnectionMethod) => {
+    setConnectionMethod(method); setSelectedAccount(''); setOwnershipConfirmed(false);
+    setAccounts([]); setAccountsLoaded(false); setAuthorizationUrl(''); setFailure(''); setFeedback('');
+  };
 
   return <section className="jigsaw-card" id="telnyx-messaging">
     <div className="jigsaw-card-header"><div><h2>Connect with Telnyx</h2><p>Your agency’s SMS and WhatsApp service, alongside the existing Telnyx business phone.</p></div>{connection && <ReadyBadge ready={connection.whatsapp_ready || connection.sms_ready}>{label(connection.status)}</ReadyBadge>}</div>
     <div className="jigsaw-card-pad jigsaw-form">
       {loading ? <div className="jigsaw-inline" role="status"><span className="jigsaw-spinner" />Loading your messaging connection…</div> : !connection || !draft ? <><Notice error>{failure || 'Unable to load your connection.'}</Notice><div><button className="jigsaw-btn" disabled={!!busy} onClick={() => void run('reload', async () => { await reload(); })}><RefreshCw size={14} /> Try again</button></div></> : <>
-        <Notice><strong>Connect your own WhatsApp Business Account.</strong> Keep using your CallPilot login. A business administrator authorizes the existing WhatsApp account with Meta in a separate window.</Notice>
+        <Notice><strong>Connect your own WhatsApp Business Account.</strong> Start the connection from CallPilot, or use the account your agency has already connected in Telnyx. Keep using your normal CallPilot login.</Notice>
         <div className="jigsaw-messaging-readiness">
           <div><span className="jigsaw-icon"><MessageCircle size={18} /></span><div><strong>WhatsApp Business</strong><p>{connection.whatsapp_from || 'Select your authorized business number'}</p></div><ReadyBadge ready={connection.whatsapp_ready}>{connection.whatsapp_ready ? 'Ready' : 'Setup required'}</ReadyBadge></div>
           <div><span className="jigsaw-icon"><ShieldCheck size={18} /></span><div><strong>SMS fallback</strong><p>{connection.sms_from || 'Select an SMS-capable Telnyx number'}</p></div><ReadyBadge ready={connection.sms_ready}>{connection.sms_ready ? 'Ready' : 'Setup required'}</ReadyBadge></div>
         </div>
-        <form className="jigsaw-form" onSubmit={save}>
-          <div className="jigsaw-form-grid"><Field title="Telnyx service" hint="Use the service provided by CallPilot, or connect a Telnyx account owned by your agency."><select className="jigsaw-input" value={draft.credential_mode} onChange={(event) => { change('credential_mode', event.target.value as 'platform' | 'own'); setApiKey(''); setWaNumbers([]); setSmsNumbers([]); setNumbersLoaded(false); }}><option value="platform">CallPilot Telnyx service</option><option value="own">My agency’s Telnyx account</option></select></Field><div className="jigsaw-field">Connection access<div className="jigsaw-inline"><ReadyBadge ready={draft.credential_mode === 'platform' ? connection.platform_available : connection.api_key_configured}>{draft.credential_mode === 'platform' ? connection.platform_available ? 'CallPilot service available' : 'Administrator setup needed' : connection.api_key_configured ? 'Agency key stored' : 'Add your agency API key'}</ReadyBadge></div><small>API keys are encrypted on the server and are never returned to the browser.</small></div></div>
+        <form className="jigsaw-form" id="telnyx-connection-settings" onSubmit={save}>
+          <div className="jigsaw-form-grid"><Field title="Telnyx service" hint="Use the service provided by CallPilot, or connect a Telnyx account owned by your agency."><select className="jigsaw-input" value={draft.credential_mode} disabled={!!busy} onChange={(event) => { change('credential_mode', event.target.value as 'platform' | 'own'); setApiKey(''); resetProviderResources(); }}><option value="platform">CallPilot Telnyx service</option><option value="own">My agency’s Telnyx account</option></select></Field><div className="jigsaw-field">Connection access<div className="jigsaw-inline"><ReadyBadge ready={draft.credential_mode === 'platform' ? connection.platform_available : connection.credential_mode === 'own' && connection.api_key_configured}>{draft.credential_mode === 'platform' ? connection.platform_available ? 'CallPilot service available' : 'Administrator setup needed' : connection.credential_mode === 'own' && connection.api_key_configured ? 'Agency key stored' : 'Add your agency API key'}</ReadyBadge></div><small>API keys are encrypted on the server and are never returned to the browser.</small></div></div>
           {draft.credential_mode === 'platform' && !connection.platform_available && <Notice>Your CallPilot administrator needs to configure the Telnyx messaging service. You can also use your agency’s own Telnyx account.</Notice>}
-          {draft.credential_mode === 'own' && <div className="jigsaw-form-grid"><Field title="Agency Telnyx API key" hint="Create this in your agency’s Telnyx Mission Control account. Leave empty to keep the stored key."><input className="jigsaw-input" type="password" autoComplete="new-password" value={apiKey} placeholder="Add or replace your API key" onChange={(event) => setApiKey(event.target.value)} /></Field><div className="jigsaw-inline items-end"><button className="jigsaw-btn" type="button" disabled={!!busy || !apiKey.trim()} onClick={() => void run('credentials', async () => { applyConnection(await jigsaw<MessagingConnection>('telnyx/credentials/', 'POST', { api_key: apiKey.trim() })); setApiKey(''); setWaNumbers([]); setSmsNumbers([]); setNumbersLoaded(false); setFeedback('Agency API key stored securely. Test access before enabling messaging.'); })}><ShieldCheck size={14} /> Save agency API key</button></div></div>}
-          <details className="jigsaw-messaging-advanced"><summary>Provider settings for your administrator</summary><div className="jigsaw-form-grid"><Field title="Telnyx messaging profile ID" hint="The profile used by the selected SMS sender."><input className="jigsaw-input" value={draft.messaging_profile_id || ''} onChange={(event) => change('messaging_profile_id', event.target.value)} /></Field><Field title="Telnyx webhook public key" hint="The public signature-verification key from Telnyx. This is not an API key."><input className="jigsaw-input" value={draft.webhook_public_key || ''} onChange={(event) => change('webhook_public_key', event.target.value)} /></Field></div></details>
-          <label className="jigsaw-inline jigsaw-small"><input type="checkbox" checked={draft.enabled} onChange={(event) => change('enabled', event.target.checked)} />Enable Telnyx messaging for this agency</label>
+          {draft.credential_mode === 'own' && <div className="jigsaw-form-grid"><Field title="Agency Telnyx API key" hint="Create this in your agency’s Telnyx Mission Control account. Leave empty to keep the stored key."><input className="jigsaw-input" type="password" autoComplete="new-password" value={apiKey} disabled={!!busy} placeholder="Add or replace your API key" onChange={(event) => setApiKey(event.target.value)} /></Field><div className="jigsaw-inline items-end"><button className="jigsaw-btn" type="button" disabled={!!busy || !apiKey.trim()} onClick={() => void run('credentials', async () => { applyConnection(await jigsaw<MessagingConnection>('telnyx/credentials/', 'POST', { api_key: apiKey.trim() })); setApiKey(''); resetProviderResources(); setFeedback('Agency API key stored securely. Save the matching public key, then test access before enabling messaging.'); })}><ShieldCheck size={14} /> Save agency API key</button></div></div>}
+          <details className="jigsaw-messaging-advanced"><summary>Provider settings for your administrator</summary><div className="jigsaw-form-grid"><Field title="Telnyx messaging profile ID" hint="The profile used by the selected SMS sender."><input className="jigsaw-input" value={draft.messaging_profile_id || ''} disabled={!!busy} onChange={(event) => change('messaging_profile_id', event.target.value)} /></Field><Field title="Telnyx webhook public key" hint={draft.credential_mode === 'platform' ? 'Your CallPilot administrator configures the platform public key on the backend.' : 'The public signature-verification key from the same Telnyx account as your API key. This is not an API key.'}><input className="jigsaw-input" value={draft.webhook_public_key || ''} disabled={!!busy || draft.credential_mode === 'platform'} onChange={(event) => change('webhook_public_key', event.target.value)} /></Field></div></details>
+          <label className="jigsaw-inline jigsaw-small"><input type="checkbox" checked={draft.enabled} disabled={!!busy} onChange={(event) => change('enabled', event.target.checked)} />Enable Telnyx messaging for this agency</label>
           {!connection.enabled && <p className="jigsaw-small">For first-time setup, save and test access first, select your verified sender below, then enable messaging and save again.</p>}
-          <div className="jigsaw-inline"><button className="jigsaw-btn jigsaw-btn-primary" disabled={!!busy}>{busy === 'save' ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Save connection</button><button className="jigsaw-btn" type="button" disabled={!!busy || draft.credential_mode !== connection.credential_mode} onClick={() => void run('test', async () => { applyConnection(await jigsaw<MessagingConnection>('telnyx/test/', 'POST', {})); setFeedback('Telnyx account access checked. Sender readiness is shown separately.'); })}><RefreshCw size={14} /> Test account access</button></div>
+          <div className="jigsaw-inline"><button className="jigsaw-btn jigsaw-btn-primary" disabled={!!busy}>{busy === 'save' ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Save connection</button><button className="jigsaw-btn" type="button" disabled={!!busy || !credentialModeSaved} onClick={() => void run('test', async () => { applyConnection(await jigsaw<MessagingConnection>('telnyx/test/', 'POST', {})); setFeedback('Telnyx account access checked. Sender readiness is shown separately.'); })}><RefreshCw size={14} /> Test account access</button></div>
         </form>
 
         <div className="jigsaw-messaging-section">
-          <div className="jigsaw-section-title"><div><h3>1. Authorize your WhatsApp Business</h3><p className="jigsaw-small">Choose the setup that matches your existing account.</p></div></div>
-          <div className="jigsaw-signup-choices" role="radiogroup" aria-label="WhatsApp Business setup">
-            <label className={signupType === 'standard' ? 'selected' : ''}><input type="radio" name="whatsapp-signup-type" value="standard" checked={signupType === 'standard'} onChange={() => setSignupType('standard')} /><div><strong>Connect a Business Account</strong><p>Select your WhatsApp Business Account and verify a number through Meta.</p></div></label>
-            <label className={signupType === 'coexistence' ? 'selected' : ''}><input type="radio" name="whatsapp-signup-type" value="coexistence" checked={signupType === 'coexistence'} onChange={() => setSignupType('coexistence')} /><div><strong>Keep using the WhatsApp Business App</strong><p>Connect an eligible existing app number and continue using it on your phone.</p></div></label>
+          <div className="jigsaw-section-title"><div><h3>1. Connect your WhatsApp Business</h3><p className="jigsaw-small">Choose where you set up your business account.</p></div></div>
+          <div className="jigsaw-signup-choices" role="radiogroup" aria-label="WhatsApp connection method">
+            <label className={connectionMethod === 'hosted' ? 'selected' : ''}>
+              <input type="radio" name="whatsapp-connection-method" value="hosted" checked={connectionMethod === 'hosted'} disabled={!!busy} onChange={() => chooseConnectionMethod('hosted')} />
+              <div><strong>Connect from CallPilot</strong><p>Authorize your own WhatsApp Business Account in the secure Telnyx and Meta signup window.</p></div>
+            </label>
+            <label className={connectionMethod === 'telnyx' ? 'selected' : ''}>
+              <input type="radio" name="whatsapp-connection-method" value="telnyx" checked={connectionMethod === 'telnyx'} disabled={!!busy} onChange={() => chooseConnectionMethod('telnyx')} />
+              <div><strong>Already connected in Telnyx</strong><p>Use your agency’s Telnyx credentials to connect an existing WhatsApp Business Account.</p></div>
+            </label>
           </div>
-          {!connection.signup_available && <p className="jigsaw-small">Your CallPilot administrator must complete the Telnyx and Meta provider setup before business authorization is available.</p>}
-          <div className="jigsaw-inline"><button className="jigsaw-btn jigsaw-btn-primary" disabled={!!busy || !connection.signup_available || draft.credential_mode !== connection.credential_mode} onClick={startSignup}>{busy === 'signup' ? <Loader2 size={14} className="animate-spin" /> : <ExternalLink size={14} />} Connect your WhatsApp Business</button>{authorizationUrl && <a className="jigsaw-link" href={authorizationUrl} target="_blank" rel="noopener noreferrer">Continue authorization <ExternalLink size={12} /></a>}</div>
-          {sessions.length > 0 && <div className="jigsaw-signup-sessions">{sessions.slice(0, 3).map((session) => <div className="jigsaw-rule" key={session.uid}><div><strong>{session.signup_type === 'coexistence' ? 'Business App connection' : 'Business Account connection'}</strong><p>{label(session.status)}{session.state ? ` · ${label(session.state)}` : ''} · Started {dateLabel(session.created_at)}</p></div><button className="jigsaw-btn" disabled={!!busy} onClick={() => refreshSignup(session)}>{busy === `session-${session.uid}` ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Check status</button></div>)}</div>}
+          {connection.waba_id && <p className="jigsaw-small">Current WhatsApp connection: <strong>{connection.whatsapp_connection_method === 'telnyx' ? 'Already connected in Telnyx' : 'Connect from CallPilot'}</strong> · Account {connection.waba_id}. Complete another setup to replace this selection.</p>}
+          {connectionMethod === 'hosted' ? <>
+            <div className="jigsaw-signup-choices" role="radiogroup" aria-label="WhatsApp Business setup">
+              <label className={signupType === 'standard' ? 'selected' : ''}><input type="radio" name="whatsapp-signup-type" value="standard" checked={signupType === 'standard'} disabled={!!busy} onChange={() => setSignupType('standard')} /><div><strong>Connect a Business Account</strong><p>Select your WhatsApp Business Account and verify a number through Meta.</p></div></label>
+              <label className={signupType === 'coexistence' ? 'selected' : ''}><input type="radio" name="whatsapp-signup-type" value="coexistence" checked={signupType === 'coexistence'} disabled={!!busy} onChange={() => setSignupType('coexistence')} /><div><strong>Keep using the WhatsApp Business App</strong><p>Connect an eligible existing app number and continue using it on your phone.</p></div></label>
+            </div>
+            {!connection.signup_available && <p className="jigsaw-small">Your CallPilot administrator must complete the Telnyx and Meta provider setup before business authorization is available.</p>}
+            <div className="jigsaw-inline"><button className="jigsaw-btn jigsaw-btn-primary" disabled={!!busy || !connection.signup_available || !credentialModeSaved} onClick={startSignup}>{busy === 'signup' ? <Loader2 size={14} className="animate-spin" /> : <ExternalLink size={14} />} Connect your WhatsApp Business</button>{authorizationUrl && <a className="jigsaw-link" href={authorizationUrl} target="_blank" rel="noopener noreferrer">Continue authorization <ExternalLink size={12} /></a>}</div>
+            {sessions.length > 0 && <div className="jigsaw-signup-sessions">{sessions.slice(0, 3).map((session) => <div className="jigsaw-rule" key={session.uid}><div><strong>{session.signup_type === 'coexistence' ? 'Business App connection' : 'Business Account connection'}</strong><p>{label(session.status)}{session.state ? ` · ${label(session.state)}` : ''} · Started {dateLabel(session.created_at)}</p></div><button className="jigsaw-btn" disabled={!!busy || !credentialModeSaved} onClick={() => refreshSignup(session)}>{busy === `session-${session.uid}` ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Check status</button></div>)}</div>}
+          </> : <>
+            <Notice>First connect WhatsApp in your agency’s <a className="jigsaw-link" href="https://portal.telnyx.com/" target="_blank" rel="noopener noreferrer">Telnyx portal <ExternalLink size={12} /></a>. Above, choose <strong>My agency’s Telnyx account</strong>, save its API key and matching webhook public key, then load your accounts here. This option uses your existing connection and does not start Meta signup.</Notice>
+            {!connection.existing_account_available && <p className="jigsaw-small">Save the credentials for your agency’s own Telnyx account above to load its WhatsApp accounts.</p>}
+            {!credentialModeSaved && <p className="jigsaw-small">Save your selected Telnyx service and any new API key before continuing.</p>}
+            <div><button className="jigsaw-btn" disabled={!!busy || !connection.existing_account_available || !credentialModeSaved} onClick={loadAccounts}>{busy === 'accounts' ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Load Telnyx WhatsApp accounts</button></div>
+            {accountsLoaded && accounts.length === 0 && <Notice>No WhatsApp Business Accounts were returned. Check that WhatsApp onboarding is complete in this Telnyx account and that its API key has access.</Notice>}
+            {accountsLoaded && accounts.length > 0 && <>
+              <Field title="Existing WhatsApp Business Account" hint="Choose the account owned by this agency. The available choices are verified against your saved Telnyx credentials.">
+                <select className="jigsaw-input" value={selectedAccount} disabled={!!busy || !credentialModeSaved} onChange={(event) => { setSelectedAccount(event.target.value); setOwnershipConfirmed(false); }}>
+                  <option value="">Select your WhatsApp Business Account…</option>
+                  {accounts.map((account) => <option key={account.waba_id} value={account.waba_id}>{account.name || 'WhatsApp Business Account'} · {account.waba_id}{account.status ? ` · ${label(account.status)}` : ''}</option>)}
+                </select>
+              </Field>
+              <label className="jigsaw-inline jigsaw-small"><input type="checkbox" checked={ownershipConfirmed} disabled={!!busy || !selectedAccount || !credentialModeSaved} onChange={(event) => setOwnershipConfirmed(event.target.checked)} />I am authorized to connect this WhatsApp Business Account for this agency. Connecting it replaces the current WhatsApp account selection.</label>
+              <div><button className="jigsaw-btn jigsaw-btn-primary" disabled={!!busy || !selectedAccount || !ownershipConfirmed || !credentialModeSaved || !connection.existing_account_available} onClick={connectExistingAccount}>{busy === 'connect-account' ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Connect existing WhatsApp account</button></div>
+            </>}
+            {connection.whatsapp_connection_method === 'telnyx' && connection.waba_id && <Notice>Your existing Telnyx account is connected. Select a ready WhatsApp Business number below and reload its approved templates. Configure the CallPilot messaging webhook in Telnyx before testing inbound messages.</Notice>}
+          </>}
         </div>
 
         <div className="jigsaw-messaging-section">
-          <div className="jigsaw-section-title"><div><h3>2. Choose your business senders</h3><p className="jigsaw-small">Only numbers authorized for this agency can be selected.</p></div><button className="jigsaw-btn" disabled={!!busy || draft.credential_mode !== connection.credential_mode} onClick={() => void run('numbers', loadNumbers)}><RefreshCw size={14} /> Refresh numbers</button></div>
+          <div className="jigsaw-section-title"><div><h3>2. Choose your business senders</h3><p className="jigsaw-small">Only numbers authorized for this agency can be selected.</p></div><button className="jigsaw-btn" disabled={!!busy || !credentialModeSaved} onClick={() => void run('numbers', loadNumbers)}><RefreshCw size={14} /> Refresh numbers</button></div>
           <div className="jigsaw-form-grid">
-            <Field title="WhatsApp Business number" hint={connection.coexistence_state ? `Business App connection: ${label(connection.coexistence_state)}. The connection must be active before sending.` : 'A completed signup is followed by provider verification of the business number.'}><select className="jigsaw-input" value={connection.whatsapp_from || ''} disabled={!!busy || !numbersLoaded || draft.credential_mode !== connection.credential_mode} onChange={(event) => { const phone_number = event.target.value; if (phone_number) void run('whatsapp-number', async () => { applyConnection(await jigsaw<MessagingConnection>('telnyx/whatsapp/select/', 'POST', { phone_number })); setFeedback('Your agency’s verified WhatsApp sender was selected.'); }); }}><option value="">Select a verified WhatsApp number…</option>{connection.whatsapp_from && !waNumbers.some((item) => item.phone_number === connection.whatsapp_from) && <option value={connection.whatsapp_from}>{connection.whatsapp_from} · Current sender</option>}{waNumbers.map((item) => <option key={item.phone_number} value={item.phone_number} disabled={!item.ready}>{item.phone_number}{item.display_name ? ` · ${item.display_name}` : ''}{!item.ready ? ` · ${label(item.coexistence_state || item.status || 'Not ready')}` : ''}</option>)}</select></Field>
-            <Field title="Telnyx SMS fallback number" hint="Select the number, then save the connection above. It must support SMS and belong to this agency."><select className="jigsaw-input" value={draft.sms_from || ''} disabled={!!busy || !numbersLoaded || draft.credential_mode !== connection.credential_mode} onChange={(event) => { const sender = smsNumbers.find((item) => item.phone_number === event.target.value); change('sms_from', event.target.value); if (sender?.messaging_profile_id) change('messaging_profile_id', sender.messaging_profile_id); }}><option value="">Select an SMS-capable Telnyx number…</option>{draft.sms_from && !smsNumbers.some((item) => item.phone_number === draft.sms_from) && <option value={draft.sms_from}>{draft.sms_from} · Current sender</option>}{smsNumbers.map((item) => <option key={item.phone_number} value={item.phone_number}>{item.phone_number}</option>)}</select></Field>
+            <Field title="WhatsApp Business number" hint={connection.coexistence_state ? `Business App connection: ${label(connection.coexistence_state)}. The connection must be active before sending.` : 'Choose a provider-ready number from the WhatsApp Business Account connected above.'}><select className="jigsaw-input" value={connection.whatsapp_from || ''} disabled={!!busy || !numbersLoaded || !credentialModeSaved} onChange={(event) => { const phone_number = event.target.value; if (phone_number) void run('whatsapp-number', async () => { applyConnection(await jigsaw<MessagingConnection>('telnyx/whatsapp/select/', 'POST', { phone_number })); setFeedback('Your agency’s verified WhatsApp sender was selected.'); }); }}><option value="">Select a verified WhatsApp number…</option>{connection.whatsapp_from && !waNumbers.some((item) => item.phone_number === connection.whatsapp_from) && <option value={connection.whatsapp_from}>{connection.whatsapp_from} · Current sender</option>}{waNumbers.map((item) => <option key={item.phone_number} value={item.phone_number} disabled={!item.ready}>{item.phone_number}{item.display_name ? ` · ${item.display_name}` : ''}{!item.ready ? ` · ${label(item.coexistence_state || item.status || 'Not ready')}` : ''}</option>)}</select></Field>
+            <Field title="Telnyx SMS fallback number" hint="Select the number, then save the connection above. It must support SMS and belong to this agency."><select className="jigsaw-input" value={draft.sms_from || ''} disabled={!!busy || !numbersLoaded || !credentialModeSaved} onChange={(event) => { const sender = smsNumbers.find((item) => item.phone_number === event.target.value); change('sms_from', event.target.value); if (sender?.messaging_profile_id) change('messaging_profile_id', sender.messaging_profile_id); }}><option value="">Select an SMS-capable Telnyx number…</option>{draft.sms_from && !smsNumbers.some((item) => item.phone_number === draft.sms_from) && <option value={draft.sms_from}>{draft.sms_from} · Current sender</option>}{smsNumbers.map((item) => <option key={item.phone_number} value={item.phone_number}>{item.phone_number}</option>)}</select></Field>
           </div>
-          {numbersLoaded && waNumbers.length === 0 && <p className="jigsaw-small">No authorized WhatsApp numbers are available yet. Complete business authorization and check its status.</p>}
+          {numbersLoaded && waNumbers.length === 0 && <p className="jigsaw-small">No authorized WhatsApp numbers are available yet. Connect your WhatsApp Business Account above, then check the number’s provisioning status in Telnyx.</p>}
           {numbersLoaded && smsNumbers.length === 0 && <p className="jigsaw-small">No SMS-capable numbers were returned. Your administrator can add or enable a number in Telnyx.</p>}
           <div><button className="jigsaw-btn" disabled={!!busy} onClick={() => save()}><Check size={14} /> Save sender settings</button></div>
         </div>
-        <div className="jigsaw-inline justify-between"><span className="jigsaw-small">Last checked: {dateLabel(connection.last_checked_at)}</span>{!disconnecting ? <button className="jigsaw-btn jigsaw-btn-danger" disabled={!!busy} onClick={() => setDisconnecting(true)}><Unplug size={14} /> Disconnect messaging</button> : <div className="jigsaw-inline"><span className="jigsaw-small">Stop Telnyx messaging for this agency?</span><button className="jigsaw-btn" disabled={!!busy} onClick={() => setDisconnecting(false)}>Cancel</button><button className="jigsaw-btn jigsaw-btn-danger" disabled={!!busy} onClick={() => void run('disconnect', async () => { applyConnection(await jigsaw<MessagingConnection>('telnyx/disconnect/', 'POST', {})); setDisconnecting(false); setWaNumbers([]); setSmsNumbers([]); setNumbersLoaded(false); setAuthorizationUrl(''); setFeedback('Telnyx messaging disconnected.'); })}>Confirm disconnect</button></div>}</div>
+        <div className="jigsaw-inline justify-between"><span className="jigsaw-small">Last checked: {dateLabel(connection.last_checked_at)}</span>{!disconnecting ? <button className="jigsaw-btn jigsaw-btn-danger" disabled={!!busy} onClick={() => setDisconnecting(true)}><Unplug size={14} /> Disconnect messaging</button> : <div className="jigsaw-inline"><span className="jigsaw-small">Stop Telnyx messaging for this agency?</span><button className="jigsaw-btn" disabled={!!busy} onClick={() => setDisconnecting(false)}>Cancel</button><button className="jigsaw-btn jigsaw-btn-danger" disabled={!!busy} onClick={() => void run('disconnect', async () => { applyConnection(await jigsaw<MessagingConnection>('telnyx/disconnect/', 'POST', {})); setDisconnecting(false); resetProviderResources(); setFeedback('Telnyx messaging disconnected.'); })}>Confirm disconnect</button></div>}</div>
         {connection.last_error && <Notice error>{connection.last_error}</Notice>}
       </>}
       {feedback && <Notice>{feedback}</Notice>}{failure && connection && <Notice error>{failure}</Notice>}
@@ -197,14 +274,33 @@ export function TelnyxTemplateSettings() {
   const [inventoryError, setInventoryError] = useState('');
   const [inventoryLoaded, setInventoryLoaded] = useState(false);
   const [feedback, setFeedback] = useState('');
+  const inventoryGeneration = useRef(0);
+  useEffect(() => {
+    const resetInventory = () => {
+      inventoryGeneration.current += 1;
+      setAvailable([]); setInventoryLoaded(false); setInventoryError(''); setFeedback('');
+      setBusy((current) => current === 'inventory' ? '' : current);
+    };
+    window.addEventListener(ACCOUNT_CHANGED_EVENT, resetInventory);
+    return () => { inventoryGeneration.current += 1; window.removeEventListener(ACCOUNT_CHANGED_EVENT, resetInventory); };
+  }, []);
   useEffect(() => {
     let active = true;
     jigsaw<AgencySettings>('settings/').then((data) => { if (active) { setTemplates(data.settings.templates || {}); setSettingsLoaded(true); } }).catch((error) => { if (active) setFailure(errorText(error)); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);
   const loadApproved = async () => {
+    const generation = inventoryGeneration.current;
     setBusy('inventory'); setInventoryError(''); setFeedback('');
-    try { const response = await jigsaw<{ results: ProviderTemplate[] }>('telnyx/templates/'); setAvailable(results<ProviderTemplate>(response).filter((template) => template.status.toUpperCase() === 'APPROVED')); setInventoryLoaded(true); } catch (error) { setInventoryError(errorText(error)); } finally { setBusy(''); }
+    try {
+      const response = await jigsaw<{ results: ProviderTemplate[] }>('telnyx/templates/');
+      if (generation !== inventoryGeneration.current) return;
+      setAvailable(results<ProviderTemplate>(response).filter((template) => template.status.toUpperCase() === 'APPROVED')); setInventoryLoaded(true);
+    } catch (error) {
+      if (generation === inventoryGeneration.current) setInventoryError(errorText(error));
+    } finally {
+      if (generation === inventoryGeneration.current) setBusy('');
+    }
   };
   const save = async (event: FormEvent) => {
     event.preventDefault(); if (!settingsLoaded) return; setBusy('save'); setFailure(''); setFeedback('');
