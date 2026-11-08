@@ -1,11 +1,12 @@
 "use client"
 
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
+import React, { useState, useEffect, useRef, useCallback } from "react"
 import { useRouter } from "next/navigation"
-import { apiRequest } from "@/services/jigsaw-service"
-import { BUSINESS_PHONE_READY, BUSINESS_PHONE_READY_ATTRIBUTE, isBusinessPhonePrefill, normalizeBusinessPhoneNumber } from "@/components/jigsaw/business-phone-link"
+import Link from "next/link"
+import { apiRequest, type Contact } from "@/services/jigsaw-service"
+import { normalizeBusinessPhoneNumber } from "@/components/jigsaw/business-phone-link"
 import { BASE_URL } from "@/lib/baseUrl"
-import { fetchTelnyxToken, loadTelnyxSdk } from "@/lib/voip-connection"
+import { createAuthorizedCall, fetchTelnyxToken, getVoiceRegistration, loadTelnyxSdk } from "@/lib/voip-connection"
 import { cookieUtils } from "@/services/auth-service"
 import { profileService } from "@/services/profile-service"
 import {
@@ -27,17 +28,9 @@ import {
     Volume2,
     Building2,
     Mail,
-    MapPin,
-    UserRound,
     Users,
-    Search,
-    Plus,
     RefreshCw,
-    UserPlus,
-    History,
-    Database,
-    ChevronLeft,
-    ChevronRight
+    ExternalLink
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -50,7 +43,8 @@ interface CallItem {
     direction: "inbound" | "outbound";
     status: string;
     number: string;
-    contact_id?: number | null;
+    contact_uid?: string | null;
+    match_state?: "matched" | "ambiguous" | "unknown";
     contact_name?: string | null;
     started_at: string;
     duration: number;
@@ -62,6 +56,9 @@ interface VoicemailItem {
     uid?: string;
     id?: string | number;
     from: string;
+    contact_uid?: string | null;
+    contact_name?: string | null;
+    match_state?: "matched" | "ambiguous" | "unknown";
     created_at: string;
     duration: number;
     is_read: boolean;
@@ -84,148 +81,45 @@ interface VoiceConfig {
     voicemailsUrl: string;
     callsUrl: string;
     callerLookupUrl: string;
-    extensionUid?: string;
     callerId?: string;
 }
 
-interface JobAdderStatus {
-    statusId?: number | string;
-    name?: string;
-    active?: boolean;
-}
-
-interface JobAdderAddress {
-    street?: string[] | string;
-    city?: string;
-    state?: string;
-    postalCode?: string;
-    postcode?: string;
-    country?: string;
-}
-
-interface JobAdderUser {
-    userId?: number | string;
-    firstName?: string;
-    lastName?: string;
-    name?: string;
-    position?: string;
-    jobTitle?: string;
-    email?: string;
-    phone?: string;
-    mobile?: string;
-}
-
-interface JobAdderCompany {
-    companyId?: number | string;
-    name?: string;
-    status?: JobAdderStatus;
-}
-
-interface JobAdderPersonBase {
-    firstName?: string;
-    lastName?: string;
-    name?: string;
-    email?: string;
-    phone?: string;
-    mobile?: string;
-    mobileNormalized?: string;
-    unsubscribed?: boolean;
-    status?: JobAdderStatus;
-    createdBy?: JobAdderUser;
-    updatedBy?: JobAdderUser;
-    createdAt?: string;
-    updatedAt?: string;
-}
-
-interface JobAdderCandidate extends JobAdderPersonBase {
-    candidateId?: number | string;
-    seeking?: string;
-    address?: JobAdderAddress;
-}
-
-interface JobAdderContact extends JobAdderPersonBase {
-    contactId?: number | string;
-    company?: JobAdderCompany | null;
-}
-
-interface JobAdderCallerLookupResponse {
-    jobadder_connected?: boolean;
-    found?: boolean;
-    candidates?: JobAdderCandidate[];
-    contacts?: JobAdderContact[];
-    detail?: string;
-    error?: string;
+interface ContactLookupResponse {
+    source: "AI Jigsaw";
+    found: boolean;
+    match_state: "matched" | "ambiguous" | "unknown";
+    contact: Contact | null;
+    matches: Contact[];
 }
 
 interface CallerLookupState {
     phone: string;
     loading: boolean;
     error: string | null;
-    data: JobAdderCallerLookupResponse | null;
+    data: ContactLookupResponse | null;
 }
 
-interface CallerLookupOption {
-    key: string;
-    type: "candidate" | "contact";
-    index: number;
+export interface PhoneSessionState {
+    status: "online" | "offline" | "connecting";
+    active: boolean;
+    incoming: boolean;
+    dialing: boolean;
     label: string;
-    record: JobAdderCandidate | JobAdderContact;
 }
-
-interface ContactItem {
-    id: number;
-    first_name?: string;
-    last_name?: string;
-    full_name?: string;
-    phone?: string | null;
-    email?: string;
-    company_name?: string;
-    source_name?: string | null;
-    origin?: string | null;
-    external_id?: string | null;
-    candidate_id?: string | null;
-    status?: string;
-}
-
-interface AtsPlatformItem {
-    id?: number;
-    uid: string;
-    is_connected?: boolean;
-    status?: string;
-    platform?: {
-        id?: number;
-        uid?: string;
-        name?: string;
-        slug?: string;
-        logo?: string | null;
-        status?: string;
-    } | number;
-    platform_name?: string;
-    name?: string;
-}
-
-interface ContactHistoryCall {
-    uid: string;
-    direction: "inbound" | "outbound";
-    number: string;
-    status: string;
-    started_at: string;
-    answered_at?: string | null;
-    ended_at?: string | null;
-    duration: number;
-    handled_by?: string | null;
-    has_voicemail?: boolean;
-    has_recording?: boolean;
-    hangup_cause?: string;
-}
-
 interface VoipDashboardContentProps {
     flowUid?: string;
+    embedded?: boolean;
+    prefillNumber?: string | null;
+    onPhoneStateChange?: (state: PhoneSessionState) => void;
 }
 
-const CONTACTS_PAGE_SIZE = 10
+const JIGSAW_CONTACTS_HREF = "/dashboard/ai-jigsaw/workspace/contacts"
+const contactRecordHref = (uid: string) => `/dashboard/ai-jigsaw/workspace/record/${encodeURIComponent(uid)}`
+const safeAtsUrl = (value?: string) => {
+    try { const url = new URL(value || ""); return url.protocol === "https:" ? url.href : "" } catch { return "" }
+}
 
-export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
+export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber, onPhoneStateChange }: VoipDashboardContentProps) {
     const router = useRouter()
     const VOICE_BASE = BASE_URL
 
@@ -237,15 +131,14 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         transferUrl: `${VOICE_BASE}/voice/api/transfer/`,
         voicemailsUrl: `${VOICE_BASE}/voice/api/voicemails/`,
         callsUrl: `${VOICE_BASE}/voice/api/calls/`,
-        callerLookupUrl: `${VOICE_BASE}/voice/api/jobadder-caller-lookup/`,
-        extensionUid: "",
+        callerLookupUrl: `${VOICE_BASE}/voice/api/contact-lookup/`,
         callerId: ""
     })
 
     // User & Organization meta
     const [orgName, setOrgName] = useState<string>("CallPilot")
     const [userName, setUserName] = useState<string>("User")
-    const [extension, setExtension] = useState<string>("101")
+    const [extension, setExtension] = useState<string>("—")
     const [mainNumber, setMainNumber] = useState<string>("0131 367 1667")
 
     // UI and Connection State
@@ -256,7 +149,6 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
     const [isDialing, setIsDialing] = useState(false)
     const [dialNumber, setDialNumber] = useState("")
     const [currentTab, setCurrentTab] = useState<"recent" | "missed" | "voicemail">("recent")
-    const [mobilePanel, setMobilePanel] = useState<"phone" | "contacts">("phone")
 
     // Active & Incoming Call States
     const [incomingCall, setIncomingCall] = useState<any | null>(null)
@@ -268,7 +160,6 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
     const [held, setHeld] = useState(false)
     const [muted, setMuted] = useState(false)
     const [callerLookup, setCallerLookup] = useState<CallerLookupState | null>(null)
-    const [selectedLookupKey, setSelectedLookupKey] = useState("")
 
     // Transfer States
     const [showTransferPanel, setShowTransferPanel] = useState(false)
@@ -283,35 +174,6 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
     const [voicemailsList, setVoicemailsList] = useState<VoicemailItem[]>([])
     const [unreadVoicemails, setUnreadVoicemails] = useState<number>(0)
     const [listErrorMessage, setListErrorMessage] = useState<string | null>(null)
-
-    // Contacts
-    const [contactsList, setContactsList] = useState<ContactItem[]>([])
-    const [contactsLoading, setContactsLoading] = useState(false)
-    const [contactsError, setContactsError] = useState<string | null>(null)
-    const [contactSearch, setContactSearch] = useState("")
-    const [contactOriginFilter, setContactOriginFilter] = useState<"all" | "candidate" | "contact" | "manual">("all")
-    const [contactsPage, setContactsPage] = useState(1)
-    const [contactsCount, setContactsCount] = useState(0)
-    const [contactsNext, setContactsNext] = useState<string | null>(null)
-    const [contactsPrevious, setContactsPrevious] = useState<string | null>(null)
-    const [selectedContactId, setSelectedContactId] = useState<number | null>(null)
-    const [selectedContact, setSelectedContact] = useState<ContactItem | null>(null)
-    const [contactCalls, setContactCalls] = useState<ContactHistoryCall[]>([])
-    const [contactCallsLoading, setContactCallsLoading] = useState(false)
-    const [contactNotice, setContactNotice] = useState<string | null>(null)
-    const [contactFormOpen, setContactFormOpen] = useState(false)
-    const [contactSaving, setContactSaving] = useState(false)
-    const [atsFetching, setAtsFetching] = useState(false)
-    const [atsPlatforms, setAtsPlatforms] = useState<AtsPlatformItem[]>([])
-    const [atsLoading, setAtsLoading] = useState(false)
-    const [atsError, setAtsError] = useState<string | null>(null)
-    const [selectedAtsUid, setSelectedAtsUid] = useState("")
-    const [newContact, setNewContact] = useState({
-        name: "",
-        email: "",
-        phone: "",
-        company_name: ""
-    })
 
     // Refs for SDK and Audio lifecycle
     const clientRef = useRef<any>(null)
@@ -341,28 +203,13 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
     const callerLookupAbortRef = useRef<AbortController | null>(null)
     const baseTitleRef = useRef<string>(typeof document !== "undefined" ? document.title : "")
 
-    // Workspace links fill the dial box in this independent window. They never dial.
+    // Same-tab navigation fills the existing phone without recreating its RTC client.
     useEffect(() => {
-        const prefill = (number: string) => {
-            if (activeCallRef.current || incomingCallRef.current || isDialingRef.current) return;
-            setDialNumber(number);
-            setMobilePanel("phone");
-        };
-        const requested = normalizeBusinessPhoneNumber(new URLSearchParams(window.location.search).get("dial"));
-        if (requested) prefill(requested);
-        const receivePrefill = (event: MessageEvent<unknown>) => {
-            if (event.origin !== window.location.origin || !isBusinessPhonePrefill(event.data)) return;
-            try { window.focus(); } catch { /* Browser focus policy does not affect the call. */ }
-            prefill(event.data.number);
-        };
-        window.addEventListener("message", receivePrefill);
-        document.documentElement.dataset[BUSINESS_PHONE_READY_ATTRIBUTE] = "1";
-        try { window.opener?.postMessage({ type: BUSINESS_PHONE_READY, version: 1 }, window.location.origin); } catch { /* The opener may have closed. */ }
-        return () => {
-            window.removeEventListener("message", receivePrefill);
-            delete document.documentElement.dataset[BUSINESS_PHONE_READY_ATTRIBUTE];
-        };
-    }, []);
+        const requested = normalizeBusinessPhoneNumber(prefillNumber);
+        if (requested && !activeCallRef.current && !incomingCallRef.current && !isDialingRef.current) {
+            setDialNumber(requested);
+        }
+    }, [prefillNumber]);
 
     // Keep refs synchronized
     useEffect(() => {
@@ -612,84 +459,6 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         return data
     }
 
-    const personName = (person?: {
-        firstName?: string;
-        lastName?: string;
-        name?: string;
-        email?: string;
-        phone?: string;
-        mobile?: string;
-    }) => {
-        if (!person) return "Unknown"
-        const name = [person.firstName, person.lastName].filter(Boolean).join(" ").trim()
-        return name || person.name || person.email || person.mobile || person.phone || "Unknown"
-    }
-
-    const compactParts = (parts: Array<string | number | null | undefined | false>) =>
-        parts
-            .map(part => (part === undefined || part === null || part === false ? "" : String(part).trim()))
-            .filter(Boolean)
-            .join(" · ")
-
-    const formatAddress = (address?: JobAdderAddress) => {
-        if (!address) return ""
-        const street = Array.isArray(address.street) ? address.street.join(", ") : address.street
-        return compactParts([
-            street,
-            address.city,
-            address.state,
-            address.postalCode || address.postcode,
-            address.country
-        ])
-    }
-
-    const formatJobAdderUser = (user?: JobAdderUser) => {
-        if (!user) return ""
-        const name = personName(user)
-        return compactParts([name === "Unknown" ? "" : name, user.jobTitle || user.position, user.email])
-    }
-
-    const formatLookupDate = (value?: string) => {
-        if (!value) return ""
-        const date = new Date(value)
-        if (Number.isNaN(date.getTime())) return ""
-        return date.toLocaleString()
-    }
-
-    const recordPhone = (record: JobAdderCandidate | JobAdderContact) =>
-        record.mobileNormalized || record.mobile || record.phone || ""
-
-    const getLookupOptions = (data?: JobAdderCallerLookupResponse | null): CallerLookupOption[] => {
-        const candidates = Array.isArray(data?.candidates) ? data.candidates : []
-        const contacts = Array.isArray(data?.contacts) ? data.contacts : []
-
-        return [
-            ...candidates.map((candidate, index) => ({
-                key: `candidate:${candidate.candidateId || index}:${index}`,
-                type: "candidate" as const,
-                index,
-                label: compactParts([
-                    personName(candidate),
-                    candidate.status?.name,
-                    recordPhone(candidate)
-                ]),
-                record: candidate
-            })),
-            ...contacts.map((contact, index) => ({
-                key: `contact:${contact.contactId || index}:${index}`,
-                type: "contact" as const,
-                index,
-                label: compactParts([
-                    personName(contact),
-                    contact.company?.name,
-                    contact.status?.name,
-                    recordPhone(contact)
-                ]),
-                record: contact
-            }))
-        ]
-    }
-
     const resetCallerLookup = () => {
         callerLookupRequestRef.current += 1
         callerLookupPhoneRef.current = ""
@@ -698,7 +467,6 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
             callerLookupAbortRef.current = null
         }
         setCallerLookup(null)
-        setSelectedLookupKey("")
     }
 
     const startCallerLookup = (rawPhone: any) => {
@@ -716,21 +484,19 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         const controller = new AbortController()
         callerLookupAbortRef.current = controller
         setCallerLookup({ phone, loading: true, error: null, data: null })
-        setSelectedLookupKey("")
 
         const separator = cfgRef.current.callerLookupUrl.includes("?") ? "&" : "?"
         const lookupUrl = `${cfgRef.current.callerLookupUrl}${separator}phone=${encodeURIComponent(phone)}`
 
         api(lookupUrl, { signal: controller.signal })
-            .then((data: JobAdderCallerLookupResponse) => {
+            .then((data: ContactLookupResponse) => {
                 if (controller.signal.aborted || callerLookupRequestRef.current !== requestId) return
 
-                const normalizedData: JobAdderCallerLookupResponse = {
+                const normalizedData: ContactLookupResponse = {
                     ...data,
-                    candidates: Array.isArray(data?.candidates) ? data.candidates : [],
-                    contacts: Array.isArray(data?.contacts) ? data.contacts : []
+                    contact: data?.match_state === "matched" ? data.contact : null,
+                    matches: Array.isArray(data?.matches) ? data.matches : []
                 }
-                const firstOption = getLookupOptions(normalizedData)[0]
 
                 setCallerLookup({
                     phone,
@@ -738,7 +504,6 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                     error: null,
                     data: normalizedData
                 })
-                setSelectedLookupKey(firstOption?.key || "")
             })
             .catch((e: any) => {
                 if (controller.signal.aborted || callerLookupRequestRef.current !== requestId) return
@@ -746,11 +511,10 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                 setCallerLookup({
                     phone,
                     loading: false,
-                    error: e?.message || "Could not load JobAdder caller details",
+                    error: e?.message || "Could not load AI Jigsaw caller details",
                     data: null
                 })
-                setSelectedLookupKey("")
-            })
+                    })
     }
 
     // Reliable Web Audio ringtone. A looping AudioBuffer is used instead of
@@ -1017,261 +781,21 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         setListErrorMessage(null)
         try {
             if (currentTabRef.current === "voicemail") {
-                const res = await api(cfgRef.current.voicemailsUrl).catch(() => null)
-                const vms: VoicemailItem[] = res && res.voicemails ? res.voicemails : [
-                    {
-                        uid: "vm-1",
-                        id: "vm-1",
-                        from: "+44 161 496 0184",
-                        created_at: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-                        duration: 38,
-                        is_read: false,
-                        ready: true,
-                        audio_url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
-                        read_url: `${VOICE_BASE}/voice/api/voicemails/vm-1/read/`
-                    },
-                    {
-                        uid: "vm-2",
-                        id: "vm-2",
-                        from: "+44 770 090 0552",
-                        created_at: new Date(Date.now() - 1000 * 60 * 1440).toISOString(),
-                        duration: 52,
-                        is_read: true,
-                        ready: true,
-                        audio_url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3",
-                        read_url: `${VOICE_BASE}/voice/api/voicemails/vm-2/read/`
-                    }
-                ]
+                const res = await api(cfgRef.current.voicemailsUrl)
+                const vms: VoicemailItem[] = Array.isArray(res?.voicemails) ? res.voicemails : []
                 setVoicemailsList(vms)
                 const unread = vms.filter(v => !v.is_read).length
                 setUnreadVoicemails(unread)
             } else {
                 const url = cfgRef.current.callsUrl + (currentTabRef.current === "missed" ? "?filter=missed" : "")
-                const res = await api(url).catch(() => null)
-                const calls: CallItem[] = res && res.calls ? res.calls : [
-                    {
-                        uid: "call-1",
-                        id: 1,
-                        direction: "inbound",
-                        status: "completed",
-                        number: "+44 20 7946 0912",
-                        contact_name: "Sarah Jenkins",
-                        started_at: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
-                        duration: 142,
-                        handled_by: "Ext 101"
-                    },
-                    {
-                        uid: "call-2",
-                        id: 2,
-                        direction: "inbound",
-                        status: "missed",
-                        number: "+44 161 496 0184",
-                        contact_name: "Marcus Davies",
-                        started_at: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-                        duration: 0,
-                        has_voicemail: true
-                    },
-                    {
-                        uid: "call-3",
-                        id: 3,
-                        direction: "outbound",
-                        status: "completed",
-                        number: "+44 113 496 0833",
-                        contact_name: "David Smith",
-                        started_at: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
-                        duration: 265,
-                        handled_by: "Ext 101"
-                    },
-                    {
-                        uid: "call-4",
-                        id: 4,
-                        direction: "inbound",
-                        status: "missed",
-                        number: "+44 20 8946 0233",
-                        contact_name: "Emma Wilson",
-                        started_at: new Date(Date.now() - 1000 * 60 * 300).toISOString(),
-                        duration: 0
-                    }
-                ]
+                const res = await api(url)
+                const calls: CallItem[] = Array.isArray(res?.calls) ? res.calls : []
                 setCallsList(calls)
             }
         } catch (e: any) {
             setListErrorMessage(e.message || "Failed to load calls")
         }
     }, [VOICE_BASE])
-
-    const CONTACTS_URL = useMemo(() => `${VOICE_BASE}/contacts/`, [VOICE_BASE])
-    const MY_PLATFORMS_URL = useMemo(() => `${VOICE_BASE}/organizations/platform/my_platforms`, [VOICE_BASE])
-
-    const contactDisplayName = useCallback((contact?: ContactItem | null) => {
-        if (!contact) return "Unknown contact"
-        const name = contact.full_name || [contact.first_name, contact.last_name].filter(Boolean).join(" ").trim()
-        return name || contact.email || contact.phone || "Unknown contact"
-    }, [])
-
-    const extractContacts = useCallback((payload: any): ContactItem[] => {
-        if (Array.isArray(payload?.results)) return payload.results
-        if (Array.isArray(payload?.contacts)) return payload.contacts
-        if (Array.isArray(payload)) return payload
-        return []
-    }, [])
-
-    const extractAtsPlatforms = useCallback((payload: any): AtsPlatformItem[] => {
-        const records = Array.isArray(payload?.results)
-            ? payload.results
-            : Array.isArray(payload?.platforms)
-            ? payload.platforms
-            : Array.isArray(payload)
-            ? payload
-            : []
-
-        return records.filter((platform: AtsPlatformItem) => platform?.is_connected !== false)
-    }, [])
-
-    const atsPlatformName = useCallback((platform?: AtsPlatformItem | null) => {
-        if (!platform) return ""
-        if (typeof platform.platform === "object" && platform.platform?.name) {
-            return platform.platform.name
-        }
-        return platform.platform_name || platform.name || ""
-    }, [])
-
-    const isJobAdderPlatform = useCallback((platform?: AtsPlatformItem | null) => {
-        const name = atsPlatformName(platform).trim().toLowerCase()
-        const slug = typeof platform?.platform === "object" ? platform.platform?.slug?.toLowerCase() : ""
-        return name === "jobadder" || slug === "jobadder"
-    }, [atsPlatformName])
-
-    const loadAtsPlatforms = useCallback(async () => {
-        setAtsLoading(true)
-        setAtsError(null)
-        try {
-            const data = await api(MY_PLATFORMS_URL)
-            const platforms = extractAtsPlatforms(data)
-            setAtsPlatforms(platforms)
-            setSelectedAtsUid(current => {
-                if (current && platforms.some(platform => platform.uid === current && isJobAdderPlatform(platform))) return current
-                return platforms.find(platform => isJobAdderPlatform(platform))?.uid || ""
-            })
-        } catch (e: any) {
-            setAtsPlatforms([])
-            setSelectedAtsUid("")
-            setAtsError(e.message || "Could not load connected ATS platforms")
-        } finally {
-            setAtsLoading(false)
-        }
-    }, [MY_PLATFORMS_URL, extractAtsPlatforms, isJobAdderPlatform])
-
-    const loadContactHistory = useCallback(async (contactId: number) => {
-        setContactCallsLoading(true)
-        try {
-            const data = await api(`${CONTACTS_URL}${contactId}/calls`)
-            setSelectedContact(data.contact || null)
-            setContactCalls(Array.isArray(data.calls) ? data.calls : [])
-        } catch (e: any) {
-            setContactCalls([])
-            setContactNotice(e.message || "Could not load contact calls")
-        } finally {
-            setContactCallsLoading(false)
-        }
-    }, [CONTACTS_URL])
-
-    const loadContacts = useCallback(async (page = contactsPage) => {
-        setContactsLoading(true)
-        setContactsError(null)
-        try {
-            const params = new URLSearchParams({
-                page: String(page),
-                page_size: String(CONTACTS_PAGE_SIZE)
-            })
-            const search = contactSearch.trim()
-            if (search) params.set("search", search)
-            if (contactOriginFilter !== "all") params.set("origin", contactOriginFilter)
-
-            const data = await api(`${CONTACTS_URL}?${params.toString()}`)
-            const contacts = extractContacts(data)
-            setContactsList(contacts)
-            setContactsCount(Number(data?.count ?? contacts.length))
-            setContactsNext(data?.next || null)
-            setContactsPrevious(data?.previous || null)
-            setSelectedContactId(current => {
-                if (current && contacts.some(contact => contact.id === current)) return current
-                return contacts[0]?.id || null
-            })
-        } catch (e: any) {
-            setContactsError(e.message || "Could not load contacts")
-            setContactsList([])
-            setContactsCount(0)
-            setContactsNext(null)
-            setContactsPrevious(null)
-        } finally {
-            setContactsLoading(false)
-        }
-    }, [CONTACTS_URL, contactOriginFilter, contactSearch, contactsPage, extractContacts])
-
-    const createContact = async () => {
-        const payload = {
-            name: newContact.name.trim(),
-            email: newContact.email.trim(),
-            phone: newContact.phone.trim() || undefined,
-            company_name: newContact.company_name.trim()
-        }
-
-        if (!payload.name || !payload.email) {
-            setContactNotice("Name and email are required.")
-            return
-        }
-
-        setContactSaving(true)
-        setContactNotice(null)
-        try {
-            const created = await api(CONTACTS_URL, {
-                method: "POST",
-                body: JSON.stringify(payload)
-            })
-            setNewContact({ name: "", email: "", phone: "", company_name: "" })
-            setContactFormOpen(false)
-            setContactNotice("Contact created.")
-            setContactOriginFilter("all")
-            setContactsPage(1)
-            await loadContacts(1)
-            if (created?.id) setSelectedContactId(created.id)
-        } catch (e: any) {
-            setContactNotice(e.message || "Could not create contact")
-        } finally {
-            setContactSaving(false)
-        }
-    }
-
-    const fetchAtsContacts = async () => {
-        const selectedPlatform = atsPlatforms.find(platform => platform.uid === selectedAtsUid) || null
-        if (!selectedPlatform) {
-            setContactNotice("Select a connected ATS first.")
-            return
-        }
-
-        if (!isJobAdderPlatform(selectedPlatform)) {
-            setContactNotice("Only JobAdder contact fetching is currently supported.")
-            return
-        }
-
-        setAtsFetching(true)
-        setContactNotice(null)
-        try {
-            const data = await api(`${VOICE_BASE}/contacts/fetch`, {
-                method: "POST",
-                body: JSON.stringify({ platform_uid: selectedAtsUid })
-            })
-            setContactNotice(data.detail || "Contact fetching started.")
-            setTimeout(() => {
-                void loadContacts(contactsPage)
-            }, 4000)
-        } catch (e: any) {
-            setContactNotice(e.message || "Could not start contact fetch")
-        } finally {
-            setAtsFetching(false)
-        }
-    }
 
     // Incoming Call UI handling
     const showIncoming = (call: any) => {
@@ -1502,7 +1026,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
     const connect = async () => {
         const lifecycle = connectionLifecycleRef.current
         if (!lifecycle || lifecycle.signal.aborted) return
-        if (activeCallRef.current || incomingCallRef.current) {
+        if (activeCallRef.current || incomingCallRef.current || isDialingRef.current) {
             scheduleReconnect(15000)
             return
         }
@@ -1528,9 +1052,10 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                 }
             })
             if (lifecycle.signal.aborted) return
+            setExtension(getVoiceRegistration().extension || "—")
 
             // A call may have arrived while fetching the replacement token.
-            if (activeCallRef.current || incomingCallRef.current) {
+            if (activeCallRef.current || incomingCallRef.current || isDialingRef.current) {
                 scheduleReconnect(15000)
                 return
             }
@@ -1856,24 +1381,20 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
             dialedNumberRef.current = target
             setStatusDetail("Starting call...")
 
-            const session = await apiRequest<{ call_session_proof: string }>("/voice/api/token/", { method: "POST" })
-            if (!session.call_session_proof) throw new Error("The phone service did not authorize this call. Reconnect your business phone.")
-            const call = client.newCall({
+            const call = await createAuthorizedCall(client, {
                 destinationNumber: target,
                 remoteCallerName: target,
                 callerNumber: cfgRef.current.callerId || undefined,
                 remoteElement: "remoteAudio",
                 audio: true,
-                localStream,
-                customHeaders: [
-                    { name: "X-Voice-Ext", value: cfgRef.current.extensionUid || extension || "" },
-                    { name: "X-CallPilot-Session", value: session.call_session_proof }
-                ]
+                localStream
+            }, {
+                requestSession: () => apiRequest("/voice/api/token/", { method: "POST" }),
+                currentClient: () => clientRef.current,
+                isReady: () => clientReadyRef.current,
+                hasPendingCall: () => !!(activeCallRef.current || incomingCallRef.current),
+                isDisposed: () => !connectionLifecycleRef.current || connectionLifecycleRef.current.signal.aborted
             })
-
-            if (!call) {
-                throw new Error("Telnyx did not create a call session.")
-            }
 
             // The Telnyx Call now owns this stream and will stop it when the call is finalized.
             localStream = null
@@ -1958,9 +1479,6 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                 if (res.data) {
                     const fullName = `${res.data.first_name || ""} ${res.data.last_name || ""}`.trim() || res.data.username || "User"
                     setUserName(fullName)
-                    if (res.data.uid) {
-                        cfgRef.current.extensionUid = res.data.uid
-                    }
                 }
             })
             .catch(() => { })
@@ -2018,7 +1536,6 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         // Connect WebRTC and fetch initial list
         connect()
         refreshList()
-        loadAtsPlatforms()
 
         // 15s refresh interval
         const listInterval = setInterval(refreshList, 15000)
@@ -2030,7 +1547,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
 
         // 8h token refresh interval
         const tokenInterval = setInterval(() => {
-            if (!activeCallRef.current && !incomingCallRef.current) {
+            if (!activeCallRef.current && !incomingCallRef.current && !isDialingRef.current) {
                 connect()
             }
         }, 8 * 3600 * 1000)
@@ -2079,38 +1596,26 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                 } catch (e) { }
             }
         }
-    }, [flowUid, refreshList, loadAtsPlatforms])
+    }, [flowUid, refreshList])
 
     // Re-fetch list on tab change
     useEffect(() => {
         refreshList()
     }, [currentTab, refreshList])
 
-    useEffect(() => {
-        const delay = contactSearch.trim() ? 350 : 0
-        const timer = setTimeout(() => {
-            void loadContacts(contactsPage)
-        }, delay)
-
-        return () => clearTimeout(timer)
-    }, [contactOriginFilter, contactSearch, contactsPage, loadContacts])
-
-    useEffect(() => {
-        if (!selectedContactId) {
-            setSelectedContact(null)
-            setContactCalls([])
-            return
-        }
-        void loadContactHistory(selectedContactId)
-    }, [selectedContactId, loadContactHistory])
-
     const filteredCalls = currentTab === "missed"
         ? callsList.filter(c => c.direction === "inbound" && c.status === "missed")
         : callsList
 
-    const totalContactPages = Math.max(1, Math.ceil(contactsCount / CONTACTS_PAGE_SIZE))
-    const contactRangeStart = contactsCount === 0 ? 0 : (contactsPage - 1) * CONTACTS_PAGE_SIZE + 1
-    const contactRangeEnd = contactsCount === 0 ? 0 : Math.min(contactsCount, contactRangeStart + contactsList.length - 1)
+    const matchedCaller = callerLookup?.data?.match_state === "matched" ? callerLookup.data.contact : null
+    const matchedIncomingCaller = callerLookup?.phone === phoneOfCall(incomingCall) ? matchedCaller : null
+    const matchedActiveCaller = callerLookup?.phone === phoneOfCall(activeCall) ? matchedCaller : null
+
+    useEffect(() => {
+        onPhoneStateChange?.({ status, active: !!activeCall, incoming: !!incomingCall, dialing: isDialing,
+            label: incomingCall ? matchedIncomingCaller?.name || incomingCaller || "Incoming call"
+                : activeCall ? matchedActiveCaller?.name || activeWho || "Active call" : isDialing ? "Starting call" : status });
+    }, [status, activeCall, incomingCall, isDialing, matchedIncomingCaller?.name, matchedActiveCaller?.name, incomingCaller, activeWho, onPhoneStateChange]);
 
     const arrow = { inbound: "↙", outbound: "↗" }
 
@@ -2127,599 +1632,76 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
         )
     }
 
-    const renderCallerLookupPanel = () => {
-        if (!callerLookup) return null
-
+    const renderCallerLookupPanel = (call: any) => {
+        if (!callerLookup || callerLookup.phone !== phoneOfCall(call)) return null
         const data = callerLookup.data
-        const candidates = Array.isArray(data?.candidates) ? data.candidates : []
-        const contacts = Array.isArray(data?.contacts) ? data.contacts : []
-        const options = getLookupOptions(data)
-        const selectedOption = options.find(option => option.key === selectedLookupKey) || options[0]
-        const selectedRecord = selectedOption?.record
-        const selectedCandidate = selectedOption?.type === "candidate" ? (selectedRecord as JobAdderCandidate) : null
-        const selectedContact = selectedOption?.type === "contact" ? (selectedRecord as JobAdderContact) : null
-        const address = selectedCandidate ? formatAddress(selectedCandidate.address) : ""
-        const company = selectedContact?.company
-        const owner = selectedRecord ? formatJobAdderUser(selectedRecord.updatedBy || selectedRecord.createdBy) : ""
-        const updated = selectedRecord ? formatLookupDate(selectedRecord.updatedAt || selectedRecord.createdAt) : ""
-        const notConnected = data && data.jobadder_connected === false
+        const contact = data?.match_state === "matched" ? data.contact : null
+        const atsUrl = safeAtsUrl(contact?.ats_url)
+        const company = contact?.metadata?.company_name || contact?.metadata?.company?.name
 
         return (
             <div className="rounded-xl border border-border/70 bg-muted/35 p-3 space-y-3">
                 <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0 flex items-center gap-2">
-                        <Users className="w-4 h-4 text-primary shrink-0" />
-                        <div className="min-w-0">
-                            <div className="text-xs font-semibold uppercase tracking-wider text-foreground">
-                                JobAdder matches
-                            </div>
-                            <div className="text-[11px] text-muted-foreground truncate">
-                                {callerLookup.phone}
-                            </div>
-                        </div>
+                    <div className="min-w-0">
+                        <div className="text-xs font-semibold uppercase tracking-wider">AI Jigsaw contact</div>
+                        <div className="text-xs text-muted-foreground">{callerLookup.phone}</div>
                     </div>
-                    {callerLookup.loading ? (
-                        <Badge variant="outline" className="gap-1.5 text-[10px] font-semibold shrink-0">
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                            Loading
-                        </Badge>
-                    ) : data && !callerLookup.error && !notConnected ? (
-                        <div className="flex items-center gap-1.5 shrink-0">
-                            <Badge variant="outline" className="bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30 text-[10px] font-semibold">
-                                {candidates.length} candidates
-                            </Badge>
-                            <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] font-semibold">
-                                {contacts.length} contacts
-                            </Badge>
-                        </div>
-                    ) : null}
+                    {callerLookup.loading && <Loader2 className="w-4 h-4 animate-spin" />}
                 </div>
-
-                {callerLookup.error ? (
-                    <div className="text-xs font-medium text-rose-600 dark:text-rose-400">
-                        {callerLookup.error}
-                    </div>
-                ) : callerLookup.loading && !data ? (
-                    <div className="text-xs text-muted-foreground">
-                        Searching JobAdder records…
-                    </div>
-                ) : notConnected ? (
-                    <div className="text-xs text-muted-foreground">
-                        {data?.detail || data?.error || "JobAdder is not connected for this account."}
-                    </div>
-                ) : options.length === 0 ? (
-                    <div className="text-xs text-muted-foreground">
-                        No JobAdder candidate or contact found for this number.
-                    </div>
-                ) : selectedRecord ? (
-                    <>
-                        <select
-                            className="w-full h-9 rounded-lg border border-input bg-background px-3 text-xs font-medium text-foreground shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                            value={selectedOption?.key || ""}
-                            onChange={e => setSelectedLookupKey(e.target.value)}
-                        >
-                            {candidates.length > 0 && (
-                                <optgroup label={`Candidates (${candidates.length})`}>
-                                    {candidates.map((candidate, index) => {
-                                        const key = `candidate:${candidate.candidateId || index}:${index}`
-                                        const option = options.find(item => item.key === key)
-                                        return (
-                                            <option key={key} value={key}>
-                                                {option?.label || personName(candidate)}
-                                            </option>
-                                        )
-                                    })}
-                                </optgroup>
-                            )}
-                            {contacts.length > 0 && (
-                                <optgroup label={`Contacts (${contacts.length})`}>
-                                    {contacts.map((contact, index) => {
-                                        const key = `contact:${contact.contactId || index}:${index}`
-                                        const option = options.find(item => item.key === key)
-                                        return (
-                                            <option key={key} value={key}>
-                                                {option?.label || personName(contact)}
-                                            </option>
-                                        )
-                                    })}
-                                </optgroup>
-                            )}
-                        </select>
-
-                        <div className="rounded-lg border border-border/70 bg-background/80 p-3 space-y-3">
-                            <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                    <div className="text-sm font-bold text-foreground truncate">
-                                        {personName(selectedRecord)}
-                                    </div>
-                                    <div className="text-[11px] text-muted-foreground mt-0.5">
-                                        {selectedCandidate
-                                            ? `Candidate ID ${selectedCandidate.candidateId || "unknown"}`
-                                            : `Contact ID ${selectedContact?.contactId || "unknown"}`}
-                                    </div>
-                                </div>
-                                <Badge
-                                    variant="secondary"
-                                    className={`text-[10px] font-semibold shrink-0 ${
-                                        selectedCandidate
-                                            ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
-                                            : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                                    }`}
-                                >
-                                    {selectedCandidate ? "Candidate" : "Contact"}
-                                </Badge>
+                {callerLookup.error ? <p className="text-xs text-rose-600">{callerLookup.error}</p>
+                    : callerLookup.loading ? <p className="text-xs text-muted-foreground">Checking AI Jigsaw contacts…</p>
+                    : data?.match_state === "ambiguous" ? (
+                        <div className="space-y-2">
+                            <p className="text-xs font-medium text-amber-700 dark:text-amber-400">Multiple contacts use this number. The caller has not been matched.</p>
+                            {data.matches.map(match => (
+                                <Link key={match.uid} href={contactRecordHref(match.uid)} className="block text-xs text-primary hover:underline">
+                                    {match.name} · {match.kind}{match.email ? ` · ${match.email}` : ""}
+                                </Link>
+                            ))}
+                        </div>
+                    ) : contact ? (
+                        <div className="space-y-3">
+                            <div className="flex items-center justify-between gap-2">
+                                <strong className="text-sm">{contact.name}</strong>
+                                <Badge variant="outline" className="capitalize text-[10px]">{contact.kind}</Badge>
                             </div>
-
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                {renderLookupDetail("Phone", recordPhone(selectedRecord), <Phone className="w-3 h-3" />)}
-                                {renderLookupDetail("Email", selectedRecord.email, <Mail className="w-3 h-3" />)}
-                                {renderLookupDetail("Status", selectedRecord.status?.name)}
-                                {selectedCandidate && renderLookupDetail("Seeking", selectedCandidate.seeking)}
-                                {selectedContact && renderLookupDetail("Company", compactParts([company?.name, company?.status?.name]), <Building2 className="w-3 h-3" />)}
-                                {renderLookupDetail("Address", address, <MapPin className="w-3 h-3" />)}
-                                {renderLookupDetail("Owner", owner, <UserRound className="w-3 h-3" />)}
-                                {renderLookupDetail("Updated", updated, <Clock className="w-3 h-3" />)}
+                                {renderLookupDetail("Phone", contact.phone, <Phone className="w-3 h-3" />)}
+                                {renderLookupDetail("Email", contact.email, <Mail className="w-3 h-3" />)}
+                                {renderLookupDetail("Company", typeof company === "string" ? company : undefined, <Building2 className="w-3 h-3" />)}
+                                {renderLookupDetail("Status", contact.status)}
+                                {renderLookupDetail("ATS record", contact.ats_id)}
+                                {renderLookupDetail("Skills", Array.isArray(contact.skills) ? contact.skills.join(", ") : undefined)}
+                            </div>
+                            <div className="flex flex-wrap gap-3 text-xs font-medium text-primary">
+                                <Link href={contactRecordHref(contact.uid)} className="hover:underline">Open AI Jigsaw record</Link>
+                                {atsUrl && <a href={atsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 hover:underline">Open ATS record <ExternalLink className="w-3 h-3" /></a>}
                             </div>
                         </div>
-                    </>
-                ) : null}
+                    ) : <p className="text-xs text-muted-foreground">No AI Jigsaw contact matches this number.</p>}
             </div>
         )
     }
 
-    const renderContactsPanel = () => {
-        const currentContact = selectedContact || contactsList.find(contact => contact.id === selectedContactId) || null
-        const selectedPhone = currentContact?.phone || ""
-        const originLabel = currentContact?.origin
-            ? currentContact.origin.replace(/_/g, " ")
-            : "manual"
-        const selectedAtsPlatform = atsPlatforms.find(platform => platform.uid === selectedAtsUid) || null
-        const selectedAtsIsJobAdder = isJobAdderPlatform(selectedAtsPlatform)
-        const originFilterOptions: Array<{ value: "all" | "candidate" | "contact" | "manual"; label: string }> = [
-            { value: "all", label: "All" },
-            { value: "candidate", label: "Candidates" },
-            { value: "contact", label: "Contacts" },
-            { value: "manual", label: "Manual" }
-        ]
-
-        return (
-            <Card className="border border-border/70 bg-card shadow-sm overflow-hidden">
-                <CardContent className="p-0">
-                    <div className="border-b border-border/70 p-4 space-y-3">
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                            <div className="min-w-0">
-                                <div className="flex items-center gap-2">
-                                    <Users className="w-4 h-4 text-primary" />
-                                    <h2 className="text-base font-bold text-foreground">Contacts</h2>
-                                </div>
-                                <div className="mt-1 text-xs text-muted-foreground">
-                                    {contactsCount} saved
-                                    {currentContact ? ` · ${contactDisplayName(currentContact)}` : ""}
-                                </div>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                                <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-8 gap-1.5 text-xs"
-                                    onClick={() => void loadContacts()}
-                                    disabled={contactsLoading}
-                                >
-                                    {contactsLoading ? (
-                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                    ) : (
-                                        <RefreshCw className="w-3.5 h-3.5" />
-                                    )}
-                                    Refresh
-                                </Button>
-                                <Button
-                                    size="sm"
-                                    className="h-8 gap-1.5 text-xs"
-                                    onClick={() => setContactFormOpen(open => !open)}
-                                >
-                                    <Plus className="w-3.5 h-3.5" />
-                                    New
-                                </Button>
-                            </div>
-                        </div>
-
-                        {contactNotice && (
-                            <div className="rounded-lg border border-border/70 bg-muted/35 px-3 py-2 text-xs font-medium text-muted-foreground">
-                                {contactNotice}
-                            </div>
-                        )}
-
-                        <div className="rounded-xl border border-border/70 bg-muted/25 p-3 space-y-2">
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                                <div className="min-w-0 flex items-center gap-2 sm:w-36">
-                                    <Database className="w-4 h-4 text-primary shrink-0" />
-                                    <span className="text-xs font-semibold text-foreground">Connected ATS</span>
-                                </div>
-                                <select
-                                    className="min-w-0 flex-1 h-9 rounded-lg border border-input bg-background px-3 text-xs font-medium text-foreground shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                                    value={selectedAtsUid}
-                                    onChange={e => {
-                                        setSelectedAtsUid(e.target.value)
-                                        setContactNotice(null)
-                                    }}
-                                    disabled={atsLoading || atsFetching}
-                                >
-                                    <option value="">
-                                        {atsLoading ? "Loading ATS..." : "Select ATS"}
-                                    </option>
-                                    {atsPlatforms.map(platform => {
-                                        const name = atsPlatformName(platform) || "Connected ATS"
-                                        const supported = isJobAdderPlatform(platform)
-                                        return (
-                                            <option key={platform.uid} value={platform.uid} disabled={!supported}>
-                                                {name}{supported ? "" : " (coming soon)"}
-                                            </option>
-                                        )
-                                    })}
-                                </select>
-                                <Button
-                                    size="sm"
-                                    variant="secondary"
-                                    className="h-9 gap-1.5 text-xs sm:w-auto"
-                                    onClick={fetchAtsContacts}
-                                    disabled={atsFetching || atsLoading || !selectedAtsUid || !selectedAtsIsJobAdder}
-                                >
-                                    {atsFetching ? (
-                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                    ) : (
-                                        <Database className="w-3.5 h-3.5" />
-                                    )}
-                                    Fetch
-                                </Button>
-                            </div>
-                            {atsError && (
-                                <div className="text-xs font-medium text-rose-600 dark:text-rose-400">
-                                    {atsError}
-                                </div>
-                            )}
-                            {!atsLoading && atsPlatforms.length === 0 && !atsError && (
-                                <div className="text-xs text-muted-foreground">
-                                    No connected ATS platforms found.
-                                </div>
-                            )}
-                        </div>
-
-                        {contactFormOpen && (
-                            <div className="rounded-xl border border-border/70 bg-muted/30 p-3 space-y-2">
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                    <Input
-                                        placeholder="Name"
-                                        className="h-9 text-xs"
-                                        value={newContact.name}
-                                        onChange={e => setNewContact(prev => ({ ...prev, name: e.target.value }))}
-                                    />
-                                    <Input
-                                        placeholder="Email"
-                                        type="email"
-                                        className="h-9 text-xs"
-                                        value={newContact.email}
-                                        onChange={e => setNewContact(prev => ({ ...prev, email: e.target.value }))}
-                                    />
-                                    <Input
-                                        placeholder="Phone"
-                                        inputMode="tel"
-                                        className="h-9 text-xs"
-                                        value={newContact.phone}
-                                        onChange={e => setNewContact(prev => ({ ...prev, phone: e.target.value }))}
-                                    />
-                                    <Input
-                                        placeholder="Company"
-                                        className="h-9 text-xs"
-                                        value={newContact.company_name}
-                                        onChange={e => setNewContact(prev => ({ ...prev, company_name: e.target.value }))}
-                                    />
-                                </div>
-                                <div className="flex justify-end gap-2">
-                                    <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        className="h-8 text-xs"
-                                        onClick={() => setContactFormOpen(false)}
-                                        disabled={contactSaving}
-                                    >
-                                        Cancel
-                                    </Button>
-                                    <Button
-                                        size="sm"
-                                        className="h-8 gap-1.5 text-xs"
-                                        onClick={createContact}
-                                        disabled={contactSaving}
-                                    >
-                                        {contactSaving ? (
-                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                        ) : (
-                                            <UserPlus className="w-3.5 h-3.5" />
-                                        )}
-                                        Save
-                                    </Button>
-                                </div>
-                            </div>
-                        )}
-
-                        <div className="relative">
-                            <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
-                            <Input
-                                placeholder="Search contacts"
-                                className="h-10 pl-9 text-sm rounded-xl"
-                                value={contactSearch}
-                                onChange={e => {
-                                    setContactSearch(e.target.value)
-                                    setContactsPage(1)
-                                }}
-                            />
-                        </div>
-
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                            {originFilterOptions.map(option => (
-                                <button
-                                    key={option.value}
-                                    type="button"
-                                    onClick={() => {
-                                        setContactOriginFilter(option.value)
-                                        setContactsPage(1)
-                                    }}
-                                    className={`h-8 rounded-lg border px-2 text-xs font-semibold transition-colors ${
-                                        contactOriginFilter === option.value
-                                            ? "border-primary/40 bg-primary/10 text-primary"
-                                            : "border-border/60 bg-background/50 text-muted-foreground hover:text-foreground hover:bg-muted/40"
-                                    }`}
-                                >
-                                    {option.label}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 xl:grid-cols-[minmax(250px,320px)_1fr]">
-                        <div className="border-b xl:border-b-0 xl:border-r border-border/70">
-                            <div className="max-h-[420px] overflow-y-auto p-2 space-y-1.5">
-                                {contactsError ? (
-                                    <div className="p-4 text-center rounded-xl bg-muted/30">
-                                        <div className="text-sm font-semibold text-rose-600">Could not load contacts</div>
-                                        <div className="text-xs text-muted-foreground mt-0.5">{contactsError}</div>
-                                    </div>
-                                ) : contactsLoading && contactsList.length === 0 ? (
-                                    <div className="p-6 flex items-center justify-center text-xs text-muted-foreground gap-2">
-                                        <Loader2 className="w-4 h-4 animate-spin" />
-                                        Loading contacts
-                                    </div>
-                                ) : contactsList.length === 0 ? (
-                                    <div className="p-6 text-center text-xs text-muted-foreground flex flex-col items-center gap-2">
-                                        <Users className="w-8 h-8 text-muted-foreground/40" />
-                                        <span>No contacts found</span>
-                                    </div>
-                                ) : (
-                                    contactsList.map(contact => {
-                                        const active = contact.id === selectedContactId
-                                        return (
-                                            <button
-                                                key={contact.id}
-                                                type="button"
-                                                onClick={() => setSelectedContactId(contact.id)}
-                                                className={`w-full rounded-xl border p-3 text-left transition-all ${
-                                                    active
-                                                        ? "border-primary/40 bg-primary/5"
-                                                        : "border-border/60 bg-background/50 hover:bg-muted/40"
-                                                }`}
-                                            >
-                                                <div className="flex items-start justify-between gap-2">
-                                                    <div className="min-w-0">
-                                                        <div className="truncate text-sm font-semibold text-foreground">
-                                                            {contactDisplayName(contact)}
-                                                        </div>
-                                                        <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                                                            {contact.company_name || contact.email || contact.phone || "No details"}
-                                                        </div>
-                                                    </div>
-                                                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 capitalize shrink-0">
-                                                        {contact.origin || "manual"}
-                                                    </Badge>
-                                                </div>
-                                            </button>
-                                        )
-                                    })
-                                )}
-                            </div>
-                            <div className="border-t border-border/70 p-2">
-                                <div className="flex items-center justify-between gap-2">
-                                    <div className="text-[11px] text-muted-foreground">
-                                        {contactsCount > 0
-                                            ? `${contactRangeStart}-${contactRangeEnd} of ${contactsCount}`
-                                            : "0 contacts"}
-                                    </div>
-                                    <div className="flex items-center gap-1">
-                                        <Button
-                                            size="sm"
-                                            variant="ghost"
-                                            className="h-8 w-8 p-0"
-                                            onClick={() => setContactsPage(page => Math.max(1, page - 1))}
-                                            disabled={contactsLoading || !contactsPrevious || contactsPage <= 1}
-                                            title="Previous contacts page"
-                                        >
-                                            <ChevronLeft className="w-4 h-4" />
-                                        </Button>
-                                        <span className="min-w-14 text-center text-[11px] font-medium text-muted-foreground">
-                                            {contactsPage}/{totalContactPages}
-                                        </span>
-                                        <Button
-                                            size="sm"
-                                            variant="ghost"
-                                            className="h-8 w-8 p-0"
-                                            onClick={() => setContactsPage(page => page + 1)}
-                                            disabled={contactsLoading || !contactsNext || contactsPage >= totalContactPages}
-                                            title="Next contacts page"
-                                        >
-                                            <ChevronRight className="w-4 h-4" />
-                                        </Button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="min-w-0 p-4 space-y-4">
-                            {currentContact ? (
-                                <>
-                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                        <div className="min-w-0">
-                                            <div className="flex items-center gap-2">
-                                                <UserRound className="w-4 h-4 text-primary shrink-0" />
-                                                <h3 className="truncate text-lg font-bold text-foreground">
-                                                    {contactDisplayName(currentContact)}
-                                                </h3>
-                                            </div>
-                                            <div className="mt-1 flex flex-wrap gap-1.5">
-                                                <Badge variant="outline" className="text-[10px] capitalize">
-                                                    {originLabel}
-                                                </Badge>
-                                                {currentContact.source_name && (
-                                                    <Badge variant="outline" className="text-[10px]">
-                                                        {currentContact.source_name}
-                                                    </Badge>
-                                                )}
-                                            </div>
-                                        </div>
-                                        <Button
-                                            size="sm"
-                                            className="h-9 gap-1.5 text-xs shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white"
-                                            onClick={() => void dial(selectedPhone)}
-                                            disabled={!selectedPhone || isDialing || status !== "online" || !!activeCall || !!incomingCall}
-                                        >
-                                            <Phone className="w-3.5 h-3.5" />
-                                            Call
-                                        </Button>
-                                    </div>
-
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                        {renderLookupDetail("Phone", currentContact.phone, <Phone className="w-3 h-3" />)}
-                                        {renderLookupDetail("Email", currentContact.email, <Mail className="w-3 h-3" />)}
-                                        {renderLookupDetail("Company", currentContact.company_name, <Building2 className="w-3 h-3" />)}
-                                        {renderLookupDetail("ATS ID", currentContact.external_id || currentContact.candidate_id)}
-                                    </div>
-
-                                    <div className="space-y-2">
-                                        <div className="flex items-center justify-between gap-3">
-                                            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                                <History className="w-3.5 h-3.5" />
-                                                Call history
-                                            </div>
-                                            {contactCallsLoading && (
-                                                <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-                                            )}
-                                        </div>
-
-                                        {contactCalls.length === 0 && !contactCallsLoading ? (
-                                            <div className="rounded-xl border border-border/60 bg-muted/25 p-5 text-center text-xs text-muted-foreground">
-                                                No calls for this contact
-                                            </div>
-                                        ) : (
-                                            <div className="space-y-1.5">
-                                                {contactCalls.map(call => {
-                                                    const isMissed = call.direction === "inbound" && call.status === "missed"
-                                                    return (
-                                                        <div
-                                                            key={call.uid}
-                                                            className={`rounded-xl border p-3 ${
-                                                                isMissed
-                                                                    ? "border-rose-500/20 bg-rose-500/5"
-                                                                    : "border-border/60 bg-background/50"
-                                                            }`}
-                                                        >
-                                                            <div className="flex items-start justify-between gap-3">
-                                                                <div className="min-w-0">
-                                                                    <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                                                                        {call.direction === "inbound" ? (
-                                                                            <PhoneIncoming className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                                                                        ) : (
-                                                                            <PhoneOutgoing className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                                                                        )}
-                                                                        <span className="truncate">{call.number}</span>
-                                                                    </div>
-                                                                    <div className="mt-1 text-[11px] text-muted-foreground truncate">
-                                                                        {new Date(call.started_at).toLocaleString()} · {call.status.replace("_", " ")}
-                                                                        {call.handled_by ? ` · ${call.handled_by}` : ""}
-                                                                    </div>
-                                                                </div>
-                                                                <div className="flex items-center gap-1.5 shrink-0">
-                                                                    {call.has_voicemail && (
-                                                                        <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30 text-[10px]">
-                                                                            voicemail
-                                                                        </Badge>
-                                                                    )}
-                                                                    <span className="font-mono text-[11px] text-muted-foreground">
-                                                                        {mmss(call.duration || 0)}
-                                                                    </span>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    )
-                                                })}
-                                            </div>
-                                        )}
-                                    </div>
-                                </>
-                            ) : (
-                                <div className="min-h-[320px] rounded-xl border border-dashed border-border/70 bg-muted/20 p-8 text-center text-sm text-muted-foreground flex flex-col items-center justify-center gap-2">
-                                    <Users className="w-10 h-10 text-muted-foreground/40" />
-                                    <span>Select or create a contact</span>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </CardContent>
-            </Card>
-        )
-    }
-
     return (
-        <div className="flex-1 overflow-y-auto bg-background p-4 md:p-8 min-h-screen text-foreground font-sans">
-            <div className="w-full max-w-7xl mx-auto space-y-4">
-                {/* Back link */}
-                <div>
+        <div className={`flex-1 bg-background text-foreground font-sans ${embedded ? "p-4 md:p-6" : "overflow-y-auto p-4 md:p-8 min-h-screen"}`}>
+            <div className="w-full max-w-4xl mx-auto space-y-4">
+                {/* The parent Jigsaw layout preserves this phone across workspace navigation. */}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <Link href={JIGSAW_CONTACTS_HREF} className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"><Users className="w-4 h-4" /> AI Jigsaw contacts</Link>
                     <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => router.push("/dashboard/phone-call-flows")}
+                        onClick={() => router.push("/dashboard/ai-jigsaw/workspace/calls")}
                         className="text-muted-foreground hover:text-foreground -ml-2 h-8 px-2 gap-1.5 text-xs font-medium"
                     >
                         <ArrowLeft className="w-4 h-4" />
-                        Back to Call Flows
+                        Recent calls
                     </Button>
                 </div>
 
-                <div className="xl:hidden grid grid-cols-2 gap-1 rounded-xl border border-border/60 bg-muted/50 p-1">
-                    <button
-                        type="button"
-                        onClick={() => setMobilePanel("phone")}
-                        className={`h-10 rounded-lg inline-flex items-center justify-center gap-2 text-xs font-semibold transition-colors ${
-                            mobilePanel === "phone"
-                                ? "bg-background text-foreground shadow-sm"
-                                : "text-muted-foreground hover:text-foreground"
-                        }`}
-                    >
-                        <Phone className="w-4 h-4" />
-                        Calling
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setMobilePanel("contacts")}
-                        className={`h-10 rounded-lg inline-flex items-center justify-center gap-2 text-xs font-semibold transition-colors ${
-                            mobilePanel === "contacts"
-                                ? "bg-background text-foreground shadow-sm"
-                                : "text-muted-foreground hover:text-foreground"
-                        }`}
-                    >
-                        <Users className="w-4 h-4" />
-                        Contacts
-                    </button>
-                </div>
-
-                <div className="grid grid-cols-1 xl:grid-cols-[minmax(360px,520px)_minmax(0,1fr)] gap-4 items-start">
-                    <div className={`min-w-0 space-y-4 ${mobilePanel === "phone" ? "block" : "hidden"} xl:block`}>
+                <div className="space-y-4">
+                    <div className="min-w-0 space-y-4">
                 {/* Header matching HTML template */}
                 <div className="p-4 rounded-2xl border border-border/70 bg-card shadow-sm space-y-2">
                     <div className="flex items-center justify-between">
@@ -2755,7 +1737,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                                 variant="outline"
                                 size="sm"
                                 onClick={() => void connect()}
-                                disabled={status === "connecting" || !!activeCall || !!incomingCall}
+                                disabled={status === "connecting" || isDialing || !!activeCall || !!incomingCall}
                                 className="shrink-0 gap-1.5"
                             >
                                 <RefreshCw className="w-3.5 h-3.5" />
@@ -2794,9 +1776,9 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                                 Incoming call
                             </div>
                             <div id="incoming-from" className="text-xl font-bold text-foreground truncate">
-                                Incoming call: {incomingCaller || "Unknown"}
+                                Incoming call: {matchedIncomingCaller?.name || incomingCaller || "Unknown"}
                             </div>
-                            {renderCallerLookupPanel()}
+                            {renderCallerLookupPanel(incomingCall)}
                             <div className="flex gap-2.5 pt-1">
                                 <Button
                                     id="btn-answer"
@@ -2831,7 +1813,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                                         Call In Progress
                                     </div>
                                     <div id="active-who" className="text-xl font-bold text-foreground truncate mt-0.5">
-                                        {activeWho}
+                                        {matchedActiveCaller?.name || activeWho}
                                     </div>
                                 </div>
                                 <Badge
@@ -2843,7 +1825,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                                     {activeStateText}
                                 </Badge>
                             </div>
-                            {renderCallerLookupPanel()}
+                            {renderCallerLookupPanel(activeCall)}
 
                             {/* Action Buttons Grid */}
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2">
@@ -3093,7 +2075,7 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                                                     title="Click to dial number"
                                                 >
                                                     <Voicemail className="w-4 h-4 text-muted-foreground" />
-                                                    <span>{v.from || "Unknown"}</span>
+                                                    <span>{v.contact_name || v.from || "Unknown"}</span>
                                                 </div>
                                                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                                     {!v.is_read && (
@@ -3108,6 +2090,9 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                                                 <Clock className="w-3 h-3 text-muted-foreground/70" />
                                                 {new Date(v.created_at).toLocaleString()}
                                             </div>
+                                            {v.contact_name && <p className="text-[11px] text-muted-foreground">{v.from}</p>}
+                                            {v.contact_uid && <Link href={contactRecordHref(v.contact_uid)} className="text-[11px] text-primary hover:underline">Open AI Jigsaw record</Link>}
+                                            {v.match_state === "ambiguous" && <p className="text-[11px] text-amber-700 dark:text-amber-400">Multiple contact matches</p>}
                                             {v.ready ? (
                                                 <audio
                                                     controls
@@ -3178,15 +2163,8 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                                                         className={`font-semibold text-xs sm:text-sm truncate hover:underline cursor-pointer flex items-center gap-1.5 ${
                                                             isMissed ? "text-rose-600 dark:text-rose-400" : "text-foreground"
                                                         }`}
-                                                        onClick={() => {
-                                                            if (c.contact_id) {
-                                                                setSelectedContactId(c.contact_id)
-                                                                setMobilePanel("contacts")
-                                                            } else {
-                                                                setDialNumber(c.number)
-                                                            }
-                                                        }}
-                                                        title={c.contact_id ? "Open contact" : "Click to dial number"}
+                                                        onClick={() => setDialNumber(c.number)}
+                                                        title="Fill dial box with this number"
                                                     >
                                                         <span className="truncate">
                                                             {isMissed ? "✖ " : arrow[c.direction] + " "}
@@ -3201,6 +2179,8 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                                                     <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
                                                         {sub}
                                                     </div>
+                                                    {c.contact_uid && <Link href={contactRecordHref(c.contact_uid)} className="text-[11px] text-primary hover:underline">Open AI Jigsaw record</Link>}
+                                                    {c.match_state === "ambiguous" && <p className="text-[11px] text-amber-700 dark:text-amber-400">Multiple contact matches</p>}
                                                 </div>
                                             </div>
                                             <Button
@@ -3227,9 +2207,6 @@ export function VoipDashboardContent({ flowUid }: VoipDashboardContentProps) {
                 </p>
                     </div>
 
-                    <div className={`min-w-0 ${mobilePanel === "contacts" ? "block" : "hidden"} xl:block xl:sticky xl:top-4`}>
-                        {renderContactsPanel()}
-                    </div>
                 </div>
             </div>
 
