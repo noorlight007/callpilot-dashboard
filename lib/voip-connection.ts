@@ -1,5 +1,49 @@
 type TelnyxConstructor = new (options: Record<string, unknown>) => any
 
+export interface VoiceCallSession {
+    call_session_proof: string
+    extension_uid?: string | null
+    extension?: string | null
+}
+
+let voiceRegistration: { extension_uid?: string; extension?: string } = {}
+export const getVoiceRegistration = () => voiceRegistration
+
+type AuthorizedCallClient = { newCall(options: Record<string, unknown>): any }
+interface AuthorizedCallGuard {
+    requestSession(): Promise<VoiceCallSession>
+    currentClient(): AuthorizedCallClient | null
+    isReady(): boolean
+    hasPendingCall(): boolean
+    isDisposed(): boolean
+}
+
+/** Authorize each outbound call against the current consultant's server session. */
+export const createAuthorizedCall = async (
+    client: AuthorizedCallClient,
+    options: Record<string, unknown>,
+    guard: AuthorizedCallGuard
+) => {
+    const session = await guard.requestSession()
+    if (!session.call_session_proof || typeof session.call_session_proof !== "string") {
+        throw new Error("The phone service did not authorize this call. Reconnect your business phone.")
+    }
+    if (guard.isDisposed() || guard.currentClient() !== client || !guard.isReady()) {
+        throw new Error("The phone connection changed while starting the call. Wait for Online, then try again.")
+    }
+    if (guard.hasPendingCall()) {
+        throw new Error("Finish the current call before starting another one.")
+    }
+    const customHeaders = [{ name: "X-CallPilot-Session", value: session.call_session_proof }]
+    // The signed call session is authoritative. Never send a profile UID or UI extension label.
+    if (typeof session.extension_uid === "string" && session.extension_uid.trim()) {
+        customHeaders.push({ name: "X-Voice-Ext", value: session.extension_uid })
+    }
+    const call = client.newCall({ ...options, customHeaders })
+    if (!call) throw new Error("Telnyx did not create a call session.")
+    return call
+}
+
 let voiceSessionProof = ""
 export const getVoiceSessionProof = () => voiceSessionProof
 
@@ -116,6 +160,10 @@ export const fetchTelnyxToken = async (tokenUrl: string, options: RequestInit): 
                 )
             }
             voiceSessionProof = typeof data?.call_session_proof === "string" ? data.call_session_proof : ""
+            voiceRegistration = {
+                ...(typeof data?.extension_uid === "string" ? { extension_uid: data.extension_uid } : {}),
+                ...(typeof data?.extension === "string" ? { extension: data.extension } : {})
+            }
             const token = normalizeTelnyxToken(data ?? body)
             // A successful HTML/error response is not a login credential.
             if (!token || token.split(".").length !== 3 || /[\s<>]/.test(token)) {

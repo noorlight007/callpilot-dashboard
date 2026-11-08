@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import { JigsawPhoneHost } from '@/components/jigsaw/jigsaw-phone-host';
 import { useRouter } from 'next/navigation';
 import { Sidebar } from '@/components/sidebar';
 import { Topbar } from '@/components/topbar';
@@ -28,7 +29,7 @@ export default function JigsawLayout({ children }: { children: React.ReactNode }
     <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
       <Topbar isSidebarOpen={sidebarOpen} onMenuClick={() => setSidebarOpen((value) => !value)} />
-      <div className="jigsaw-root">{children}</div>
+      <div className="jigsaw-root"><Suspense fallback={<p className="jigsaw-small">Opening workspace…</p>}><JigsawPhoneHost>{children}</JigsawPhoneHost></Suspense></div>
     </div>
   </div>;
 }
