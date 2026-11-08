@@ -170,14 +170,119 @@ function VoicemailScreen() {
   const listen = async (item: JsonRecord) => { setFailure(''); try { const blob = await apiRequest<Blob>(`/voice/api/recordings/${item.uid}/audio/`); const url = URL.createObjectURL(blob); if (audioUrlsRef.current[item.uid]) URL.revokeObjectURL(audioUrlsRef.current[item.uid]); audioUrlsRef.current[item.uid] = url; setAudioUrls((current) => ({ ...current, [item.uid]: url })); await apiRequest(`/voice/api/voicemails/${item.uid}/read/`, { method: 'POST' }); setItems((current) => current.map((row) => row.uid === item.uid ? { ...row, is_read: true } : row)); } catch (error) { setFailure((error as Error).message); } };
   return <Panel title="Voicemail" subtitle="Listen securely through your consultant account." action={<Link href={`${ROOT}/workspace/calls`} className="jigsaw-btn"><ArrowLeft size={14} /> Calls</Link>}>{busy ? <Loading /> : <>{failure && <div className="jigsaw-card-pad"><ResourceError error={failure} retry={() => { setFailure(''); setRevision((value) => value + 1); }} /></div>}{items.length ? items.map((item) => <div className="jigsaw-activity" key={item.uid}><span className="jigsaw-avatar"><Voicemail size={17} /></span><div className="flex-1"><div className="jigsaw-inline"><strong className="jigsaw-activity-title">{item.from || 'Unknown caller'}</strong>{!item.is_read && <Badge value="queued">New</Badge>}</div><p className="jigsaw-small">{formatDate(item.created_at)} · {item.duration || 0} seconds</p>{audioUrls[item.uid] ? <audio controls autoPlay src={audioUrls[item.uid]} className="mt-3 max-w-full" /> : <button className="jigsaw-btn mt-3" disabled={!item.ready} onClick={() => listen(item)}>{item.ready ? 'Listen to voicemail' : 'Recording processing'}</button>}{item.transcript && <p className="jigsaw-small">{item.transcript}</p>}</div></div>) : !failure && <Empty icon={Voicemail} title="No voicemail yet">Messages left on your business line will appear here once they are processed.</Empty>}</>}</Panel>;
 }
+interface ContactSyncJob {
+  uid: string;
+  organization_uid: string;
+  status: 'queued' | 'running' | 'completed' | 'failed';
+  stage: 'candidates' | 'contacts' | 'complete';
+  processed: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  pages_processed: number;
+  offset: number;
+  resource_total: number | null;
+  error: string;
+  started_at: string | null;
+}
+interface ContactSyncResponse { job: ContactSyncJob | null; already_running?: boolean; }
+const contactSyncActive = (job: ContactSyncJob | null) => job?.status === 'queued' || job?.status === 'running';
+
+function useContactSync(onCompleted: () => void) {
+  const [job, setJob] = useState<ContactSyncJob | null>(null);
+  const [ready, setReady] = useState(false), [starting, setStarting] = useState(false), [error, setError] = useState('');
+  const mounted = useRef(false), startingRef = useRef(false), readyRef = useRef(false);
+  const latestJob = useRef<ContactSyncJob | null>(null), generation = useRef(0);
+  const controller = useRef<AbortController | null>(null), timer = useRef<number | null>(null);
+  const checkRef = useRef<() => Promise<void>>(async () => {});
+  const clearPending = useCallback(() => {
+    if (timer.current !== null) { window.clearTimeout(timer.current); timer.current = null; }
+    controller.current?.abort();
+    controller.current = null;
+  }, []);
+  const accept = useCallback((next: ContactSyncJob | null) => {
+    const previous = latestJob.current;
+    latestJob.current = next;
+    setJob(next);
+    readyRef.current = true;
+    setReady(true);
+    if (next?.status === 'completed' && (!previous || previous.uid !== next.uid || previous.status !== 'completed')) onCompleted();
+  }, [onCompleted]);
+  const schedule = useCallback((next: ContactSyncJob | null) => {
+    if (contactSyncActive(next)) timer.current = window.setTimeout(() => { timer.current = null; void checkRef.current(); }, 2000);
+  }, []);
+  const check = useCallback(async () => {
+    if (!mounted.current || startingRef.current) return;
+    clearPending();
+    const request = ++generation.current;
+    const abort = new AbortController();
+    controller.current = abort;
+    readyRef.current = false;
+    setReady(false);
+    try {
+      const data = await apiRequest<ContactSyncResponse>('/jigsaw/contacts/sync/', { signal: abort.signal });
+      if (!mounted.current || request !== generation.current) return;
+      setError('');
+      accept(data.job);
+      schedule(data.job);
+    } catch (failure) {
+      if (!mounted.current || request !== generation.current || abort.signal.aborted) return;
+      setError((failure as Error).message || 'Unable to check contact sync progress.');
+      schedule(latestJob.current);
+    } finally {
+      if (request === generation.current) controller.current = null;
+    }
+  }, [accept, clearPending, schedule]);
+  useEffect(() => { checkRef.current = check; }, [check]);
+  useEffect(() => {
+    mounted.current = true;
+    void check();
+    return () => { mounted.current = false; ++generation.current; clearPending(); };
+  }, [check, clearPending]);
+  const start = useCallback(async () => {
+    if (!mounted.current || startingRef.current || !readyRef.current || contactSyncActive(latestJob.current)) return;
+    startingRef.current = true;
+    setStarting(true);
+    setError('');
+    clearPending();
+    const request = ++generation.current;
+    const abort = new AbortController();
+    controller.current = abort;
+    try {
+      const data = await apiRequest<ContactSyncResponse>('/jigsaw/contacts/sync/', { method: 'POST', body: '{}', signal: abort.signal });
+      if (!mounted.current || request !== generation.current) return;
+      accept(data.job);
+      schedule(data.job);
+    } catch (failure) {
+      if (!mounted.current || request !== generation.current || abort.signal.aborted) return;
+      setError((failure as Error).message || 'Unable to start contact sync.');
+      readyRef.current = false;
+      setReady(false);
+      // A response can be lost after the job was accepted. Recheck before allowing another start.
+      timer.current = window.setTimeout(() => { timer.current = null; void checkRef.current(); }, 2000);
+    } finally {
+      if (mounted.current && request === generation.current) {
+        controller.current = null;
+        startingRef.current = false;
+        setStarting(false);
+      }
+    }
+  }, [accept, clearPending, schedule]);
+  return { job, ready, starting, error, start, retry: check, active: contactSyncActive(job) };
+}
+
 function ContactsScreen() {
-  const [query, setQuery] = useState(''), [kind, setKind] = useState(''), [debounced, setDebounced] = useState(''), [syncing, setSyncing] = useState(false), [feedback, setFeedback] = useState(''), [failure, setFailure] = useState('');
-  useEffect(() => { const timer = window.setTimeout(() => setDebounced(query), 250); return () => window.clearTimeout(timer); }, [query]);
-  const resource = useResource<JsonRecord>(`contacts/?q=${encodeURIComponent(debounced)}${kind ? `&kind=${kind}` : ''}`, { results: [] });
+  const [query, setQuery] = useState(''), [kind, setKind] = useState(''), [debounced, setDebounced] = useState(''), [offset, setOffset] = useState(0), [failure, setFailure] = useState('');
+  useEffect(() => { const timer = window.setTimeout(() => { setDebounced(query); setOffset(0); }, 250); return () => window.clearTimeout(timer); }, [query]);
+  const resource = useResource<JsonRecord>(`contacts/?limit=100&offset=${offset}&q=${encodeURIComponent(debounced)}${kind ? `&kind=${kind}` : ''}`, { results: [] });
+  const sync = useContactSync(resource.reload);
   const contacts = results<Contact>(resource.data);
-  const sync = async () => { setSyncing(true); setFailure(''); setFeedback(''); try { const data = await jigsaw<JsonRecord>('contacts/sync/', 'POST', {}); setFeedback(`${data.synced ?? data.count ?? data.imported ?? 0} contacts synced from your ATS.`); resource.reload(); } catch (error) { setFailure((error as Error).message); } finally { setSyncing(false); } };
+  const total = resource.data.count ?? contacts.length;
+  const previous = resource.data.previous as number | null | undefined, next = resource.data.next as number | null | undefined;
   const favourite = async (contact: Contact) => { setFailure(''); try { await jigsaw(`contacts/${contact.uid}/`, 'PATCH', { favourite: !contact.favourite }); resource.reload(); } catch (error) { setFailure((error as Error).message); } };
-  return <><div className="jigsaw-toolbar"><label className="jigsaw-search"><Search size={16} /><input type="search" placeholder="Search name, number or email" aria-label="Search contacts" value={query} onChange={(event) => setQuery(event.target.value)} /></label><button className="jigsaw-btn" onClick={sync} disabled={syncing}>{syncing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Sync ATS contacts</button></div><div className="jigsaw-inline">{[['', 'All'], ['candidate', 'Candidates'], ['client', 'Clients'], ['supplier', 'Suppliers']].map(([value, label]) => <button className={`jigsaw-btn ${kind === value ? 'jigsaw-btn-black' : ''}`} key={value} onClick={() => setKind(value)}>{label}</button>)}</div>{feedback && <Notice tone="success">{feedback}</Notice>}{failure && <Notice tone="error">{failure}</Notice>}<Panel title="Contacts" subtitle="Your ATS contact cache. Favourites appear first, then A to Z.">{resource.loading ? <Loading /> : resource.error ? <div className="jigsaw-card-pad"><ResourceError error={resource.error} retry={resource.reload} /></div> : contacts.length ? [...contacts].sort((a, b) => Number(b.favourite) - Number(a.favourite) || a.name.localeCompare(b.name)).map((contact) => <div className="jigsaw-contact" key={contact.uid}><span className="jigsaw-avatar">{initials(contact.name)}</span><Link href={`${ROOT}/workspace/record/${contact.uid}`} className="jigsaw-contact-info"><strong>{contact.name}</strong><span>{titleCase(contact.kind)} · {contact.phone || contact.email || 'No contact details'}</span></Link><div className="jigsaw-contact-actions"><button className="jigsaw-btn" onClick={() => favourite(contact)} aria-label={contact.favourite ? `Remove ${contact.name} from favourites` : `Favourite ${contact.name}`}><Star size={15} fill={contact.favourite ? '#fdb022' : 'none'} color={contact.favourite ? '#b54708' : 'currentColor'} /></button>{contact.phone && <><BusinessPhoneLink className="jigsaw-btn" number={contact.phone} aria-label={`Call ${contact.name}`}><Phone size={15} /></BusinessPhoneLink><Link className="jigsaw-btn" href={`${ROOT}/workspace/messages?contact=${contact.uid}`} aria-label={`Message ${contact.name}`}><MessageCircle size={15} /></Link></>}</div></div>) : <Empty icon={Users} title={query ? 'No matching contacts' : 'Your ATS contacts belong here'}>{query ? 'Try another name, phone number or email address.' : 'Connect your agency ATS, then sync contacts. No new ATS records are created automatically.'}</Empty>}</Panel></>;
+  return <><div className="jigsaw-toolbar"><label className="jigsaw-search"><Search size={16} /><input type="search" placeholder="Search name, number or email" aria-label="Search contacts" value={query} onChange={(event) => setQuery(event.target.value)} /></label><button className="jigsaw-btn" onClick={sync.start} disabled={!sync.ready || sync.starting || sync.active}>{sync.starting || sync.active ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} {sync.starting ? 'Starting sync…' : sync.active ? 'Sync in progress' : 'Sync ATS contacts'}</button></div><div className="jigsaw-inline">{[['', 'All'], ['candidate', 'Candidates'], ['client', 'Clients'], ['supplier', 'Suppliers']].map(([value, label]) => <button className={`jigsaw-btn ${kind === value ? 'jigsaw-btn-black' : ''}`} key={value} onClick={() => { setKind(value); setOffset(0); }}>{label}</button>)}</div>
+    {sync.job && <Notice tone={sync.job.status === 'completed' ? 'success' : sync.job.status === 'failed' ? 'error' : ''}><strong>{sync.job.status === 'queued' ? sync.job.started_at ? 'Contact sync continuing' : 'Contact sync queued' : sync.job.status === 'running' ? `Syncing ${sync.job.stage === 'candidates' ? 'candidates' : 'client contacts'}` : sync.job.status === 'completed' ? 'Contact sync completed' : 'Contact sync failed'}</strong>{sync.job.status === 'queued' && <div>{sync.job.started_at ? 'Waiting for the next page to be processed.' : 'Waiting for a background worker.'} You can leave this page and check progress when you return.</div>}{sync.job.status === 'running' && <><div>{sync.job.offset.toLocaleString()}{sync.job.resource_total !== null ? ` of ${sync.job.resource_total.toLocaleString()}` : ''} {sync.job.stage === 'candidates' ? 'candidates' : 'client contacts'} read in this stage.</div><progress aria-label="Contact sync stage progress" {...(sync.job.resource_total !== null && sync.job.resource_total > 0 ? { max: sync.job.resource_total, value: Math.min(sync.job.offset, sync.job.resource_total) } : {})} style={{ width: '100%', marginTop: 8 }} /></>}<div>{sync.job.processed.toLocaleString()} processed · {sync.job.created.toLocaleString()} new · {sync.job.updated.toLocaleString()} updated · {sync.job.skipped.toLocaleString()} skipped</div>{sync.job.status === 'failed' && <div>{sync.job.error || 'The sync stopped before it finished. Try syncing again.'}</div>}</Notice>}
+    {sync.error && <ResourceError error={sync.error} retry={sync.retry} />}{failure && <Notice tone="error">{failure}</Notice>}<Panel title="Contacts" subtitle="Your ATS contact cache. Favourites appear first, then A to Z.">{resource.loading ? <Loading /> : resource.error ? <div className="jigsaw-card-pad"><ResourceError error={resource.error} retry={resource.reload} /></div> : <>{contacts.length ? contacts.map((contact) => <div className="jigsaw-contact" key={contact.uid}><span className="jigsaw-avatar">{initials(contact.name)}</span><Link href={`${ROOT}/workspace/record/${contact.uid}`} className="jigsaw-contact-info"><strong>{contact.name}</strong><span>{titleCase(contact.kind)} · {contact.phone || contact.email || 'No contact details'}</span></Link><div className="jigsaw-contact-actions"><button className="jigsaw-btn" onClick={() => favourite(contact)} aria-label={contact.favourite ? `Remove ${contact.name} from favourites` : `Favourite ${contact.name}`}><Star size={15} fill={contact.favourite ? '#fdb022' : 'none'} color={contact.favourite ? '#b54708' : 'currentColor'} /></button>{contact.phone && <><BusinessPhoneLink className="jigsaw-btn" number={contact.phone} aria-label={`Call ${contact.name}`}><Phone size={15} /></BusinessPhoneLink><Link className="jigsaw-btn" href={`${ROOT}/workspace/messages?contact=${contact.uid}`} aria-label={`Message ${contact.name}`}><MessageCircle size={15} /></Link></>}</div></div>) : <Empty icon={Users} title={query || kind ? 'No matching contacts' : 'Your ATS contacts belong here'}>{query || kind ? 'Try another name, phone number, email address or contact type.' : 'Connect your agency ATS, then sync contacts. No new ATS records are created automatically.'}</Empty>}<nav className="jigsaw-card-pad jigsaw-inline justify-between" aria-label="Contact pages"><span className="jigsaw-small">{contacts.length ? `${(resource.data.offset ?? offset) + 1}–${(resource.data.offset ?? offset) + contacts.length} of ${total.toLocaleString()} contacts` : `${total.toLocaleString()} contacts`}</span><div className="jigsaw-inline"><button className="jigsaw-btn" disabled={previous == null} onClick={() => { if (previous != null) setOffset(previous); }}><ArrowLeft size={14} /> Previous</button><button className="jigsaw-btn" disabled={next == null} onClick={() => { if (next != null) setOffset(next); }}>Next <ArrowRight size={14} /></button></div></nav></>}</Panel></>;
 }
 function GeneratedTermsDetails({ flow }: { flow: JsonRecord }) {
   return <><div><dt>Payment method</dt><dd>{flow.payment_method_selected_at ? flow.registration_type : 'Awaiting candidate: 1 PAYE / 2 CIS'}</dd></div><div><dt>KID issued</dt><dd>{flow.kid_sent_at ? formatDate(flow.kid_sent_at) : 'Not issued yet'}</dd></div><div><dt>Terms issued</dt><dd>{flow.toe_sent_at ? formatDate(flow.toe_sent_at) : flow.kid_sent_at ? 'Waiting for the delayed email' : 'Waiting for KID issue'}</dd></div><div><dt>Terms acceptance</dt><dd>{flow.toe_confirmed_at ? formatDate(flow.toe_confirmed_at) : flow.toe_sent_at ? 'Awaiting confirmation on the document page' : 'Available after terms issue'}</dd></div></>;
