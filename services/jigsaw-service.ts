@@ -47,7 +47,7 @@ export function results<T>(value: unknown): T[] {
 }
 export type JsonRecord = Record<string, any>;
 export interface Contact { uid: string; name: string; kind: string; phone: string; email: string; status: string; favourite: boolean; ats_id: string; ats_url: string; skills: string[]; metadata: JsonRecord; }
-export interface Message { uid: string; contact: string | null; to_number: string; body: string; channel: string; direction: string; status: string; template: string; attachments?: JsonRecord[]; created_at: string; }
+export interface Message { uid: string; contact: string | null; to_number: string; body: string; channel: string; direction: string; status: string; template: string; failure_reason?: string; attachments?: JsonRecord[]; created_at: string; }
 export interface Alert { uid: string; title: string; body: string; kind: string; read: boolean; action: string; payload: JsonRecord; resolved_at?: string | null; created_at: string; }
 export interface Device { uid: string; name: string; platform: string; last_seen_at: string; revoked_at: string | null; }
 export interface Command { uid: string; name: string; phrases: string[]; action: string; status_name: string; enabled: boolean; confidence_threshold: number; }
