@@ -6,6 +6,7 @@ import Link from "next/link"
 import { apiRequest, type Contact } from "@/services/jigsaw-service"
 import { normalizeBusinessPhoneNumber } from "@/components/jigsaw/business-phone-link"
 import { BASE_URL } from "@/lib/baseUrl"
+import { callFailureMessage, rtcFailureMessage } from "@/lib/voice-failures"
 import { createAuthorizedCall, fetchTelnyxToken, getVoiceRegistration, loadTelnyxSdk } from "@/lib/voip-connection"
 import { cookieUtils } from "@/services/auth-service"
 import { profileService } from "@/services/profile-service"
@@ -50,6 +51,17 @@ interface CallItem {
     duration: number;
     handled_by?: string | null;
     has_voicemail?: boolean;
+    hangup_cause?: string;
+    failure_reason?: string;
+    provider_error_code?: string;
+}
+
+interface PhoneSetup {
+    local_checks_ok: boolean;
+    organization_name: string;
+    main_number: string | null;
+    checks: { code: string; ok: boolean; message: string }[];
+    configuration: { credential_connection_id: string; call_control_app_id: string; public_base_url: string; voice_webhook_url: string };
 }
 
 interface VoicemailItem {
@@ -139,13 +151,16 @@ export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber,
     const [orgName, setOrgName] = useState<string>("CallPilot")
     const [userName, setUserName] = useState<string>("User")
     const [extension, setExtension] = useState<string>("—")
-    const [mainNumber, setMainNumber] = useState<string>("0131 367 1667")
+    const [mainNumber, setMainNumber] = useState<string>("Checking…")
 
     // UI and Connection State
     const [status, setStatus] = useState<"online" | "offline" | "connecting">("connecting")
     const [statusDetail, setStatusDetail] = useState<string>("")
     const [soundBannerVisible, setSoundBannerVisible] = useState(false)
     const [callError, setCallError] = useState<string | null>(null)
+    const [phoneSetup, setPhoneSetup] = useState<PhoneSetup | null>(null)
+    const [phoneSetupError, setPhoneSetupError] = useState("")
+    const [phoneSetupBusy, setPhoneSetupBusy] = useState(false)
     const [isDialing, setIsDialing] = useState(false)
     const [dialNumber, setDialNumber] = useState("")
     const [currentTab, setCurrentTab] = useState<"recent" | "missed" | "voicemail">("recent")
@@ -196,12 +211,30 @@ export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber,
     const clientReadyRef = useRef<boolean>(false)
     const connectionLifecycleRef = useRef<AbortController | null>(null)
     const clientDisconnectRef = useRef<Promise<void>>(Promise.resolve())
+    const userEndedCallsRef = useRef<Set<string>>(new Set())
     const dialedNumberRef = useRef<string>("")
     const isDialingRef = useRef<boolean>(false)
     const callerLookupPhoneRef = useRef<string>("")
     const callerLookupRequestRef = useRef<number>(0)
     const callerLookupAbortRef = useRef<AbortController | null>(null)
     const baseTitleRef = useRef<string>(typeof document !== "undefined" ? document.title : "")
+
+    const loadPhoneSetup = useCallback(async (signal?: AbortSignal) => {
+        setPhoneSetupBusy(true)
+        setPhoneSetupError("")
+        try {
+            const data = await apiRequest<PhoneSetup>("/voice/api/setup/", { signal })
+            if (signal?.aborted) return
+            setPhoneSetup(data)
+            setMainNumber(data.main_number || "Not configured")
+            setOrgName(data.organization_name)
+            cfgRef.current.callerId = data.main_number || ""
+        } catch (error: any) {
+            if (!signal?.aborted) setPhoneSetupError(error.message || "Unable to check the backend phone setup.")
+        } finally {
+            if (!signal?.aborted) setPhoneSetupBusy(false)
+        }
+    }, [])
 
     // Same-tab navigation fills the existing phone without recreating its RTC client.
     useEffect(() => {
@@ -961,6 +994,11 @@ export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber,
             case "hangup":
             case "destroy":
             case "purge":
+                if (activeCallRef.current && sameCall(activeCallRef.current, call) && isDefinitelyOutbound(call)
+                    && !callStartRef.current && !userEndedCallsRef.current.has(callId(call))) {
+                    setCallError(rtcFailureMessage(call))
+                }
+                userEndedCallsRef.current.delete(callId(call))
                 endCall(call)
                 break
         }
@@ -1311,6 +1349,7 @@ export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber,
 
     const handleHangup = () => {
         if (activeCall) {
+            userEndedCallsRef.current.add(callId(activeCall))
             if (typeof activeCall.hangup === "function") {
                 activeCall.hangup()
             }
@@ -1349,6 +1388,11 @@ export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber,
             return
         }
         if (isDialingRef.current) return
+        if (phoneSetup && !phoneSetup.local_checks_ok) {
+            const message = "Your backend phone setup is incomplete. Open Phone setup and ask your administrator to complete the failed checks."
+            setCallError(message)
+            return
+        }
 
         if (!clientRef.current || !clientReadyRef.current) {
             const message = "Phone is not ready yet. Wait for the Online badge, then try again."
@@ -1483,17 +1527,7 @@ export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber,
             })
             .catch(() => { })
 
-        profileService.getOrganization()
-            .then(res => {
-                if (res.data) {
-                    if (res.data.name) setOrgName(res.data.name)
-                    if (res.data.phone_number) {
-                        setMainNumber(res.data.phone_number)
-                        cfgRef.current.callerId = res.data.phone_number
-                    }
-                }
-            })
-            .catch(() => { })
+        void loadPhoneSetup(lifecycle.signal)
 
         if (flowUid) {
             const token = cookieUtils.get("access")
@@ -1596,7 +1630,7 @@ export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber,
                 } catch (e) { }
             }
         }
-    }, [flowUid, refreshList])
+    }, [flowUid, refreshList, loadPhoneSetup])
 
     // Re-fetch list on tab change
     useEffect(() => {
@@ -1746,6 +1780,24 @@ export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber,
                         </div>
                     )}
                 </div>
+
+                <details className="p-4 rounded-xl border border-border/70 bg-card text-xs space-y-3">
+                    <summary className="cursor-pointer font-semibold">Phone setup{phoneSetup && !phoneSetup.local_checks_ok ? " · Action needed" : " and webhook"}</summary>
+                    <p className="text-muted-foreground">Browser registration and contact matching do not confirm that the destination call can be placed. These checks read this backend's local settings.</p>
+                    <dl className="space-y-2 break-all">
+                        <div><dt className="font-semibold">API used by this phone</dt><dd>{VOICE_BASE}</dd></div>
+                        <div><dt className="font-semibold">Voice webhook for this phone</dt><dd>{`${VOICE_BASE.replace(/\/$/, "")}/voice/webhooks/telnyx/`}</dd></div>
+                        {phoneSetup && <>
+                            <div><dt className="font-semibold">SIP credential connection ID</dt><dd>{phoneSetup.configuration.credential_connection_id || "Missing"}</dd></div>
+                            <div><dt className="font-semibold">Voice API application ID</dt><dd>{phoneSetup.configuration.call_control_app_id || "Missing"}</dd></div>
+                        </>}
+                    </dl>
+                    {phoneSetup?.configuration.voice_webhook_url && phoneSetup.configuration.voice_webhook_url !== `${VOICE_BASE.replace(/\/$/, "")}/voice/webhooks/telnyx/` && <p role="alert" className="text-amber-700 dark:text-amber-400 break-all">The backend public URL points to {phoneSetup.configuration.voice_webhook_url}. Ask your administrator to check PUBLIC_BASE_URL. Telnyx voice webhooks must reach the same backend and database as this phone.</p>}
+                    {phoneSetup && <ul className="space-y-1">{phoneSetup.checks.map(check => <li key={check.code} className={check.ok ? "text-muted-foreground" : "text-rose-600 dark:text-rose-400"}>{check.ok ? "✓" : "Missing:"} {check.message}</li>)}</ul>}
+                    {phoneSetupError && <p role="alert" className="text-rose-600">{phoneSetupError}</p>}
+                    <p className="text-muted-foreground">Set this voice webhook on both the Telnyx SIP connection and Voice API application. Telnyx account balance, outbound profile and country permissions still need checking in Telnyx. Keep API keys on the backend.</p>
+                    <Button variant="outline" size="sm" disabled={phoneSetupBusy} onClick={() => void loadPhoneSetup()}>{phoneSetupBusy ? "Checking…" : "Check again"}</Button>
+                </details>
 
                 {/* Sound Banner */}
                 {soundBannerVisible && (
@@ -2179,6 +2231,7 @@ export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber,
                                                     <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
                                                         {sub}
                                                     </div>
+                                                    {callFailureMessage(c) && <p className="text-xs text-rose-600 dark:text-rose-400 mt-1 whitespace-normal break-words">{callFailureMessage(c)}</p>}
                                                     {c.contact_uid && <Link href={contactRecordHref(c.contact_uid)} className="text-[11px] text-primary hover:underline">Open AI Jigsaw record</Link>}
                                                     {c.match_state === "ambiguous" && <p className="text-[11px] text-amber-700 dark:text-amber-400">Multiple contact matches</p>}
                                                 </div>

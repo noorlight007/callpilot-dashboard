@@ -40,7 +40,7 @@ function phone(overrides = {}) {
   const call = { id: 'mock-call', state: 'trying' };
   const client = { newCall(options) { calls.push(options); return call; } };
   const context = {
-    dialNumber: '+441316001234', sanitizeCallableNumber: number => number,
+    dialNumber: '+441316001234', sanitizeCallableNumber: number => number, phoneSetup: null,
     clientRef: { current: client }, clientReadyRef: { current: true },
     incomingCallRef: { current: null }, activeCallRef: { current: null },
     isDialingRef: { current: false }, dialedNumberRef: { current: '' },
@@ -204,4 +204,44 @@ test('contact call link opens the Jigsaw phone in the current tab and normalizes
   assert.ok(!markup.includes('target='));
   assert.equal(link.businessPhoneHref('javascript:alert(1)'), '/dashboard/ai-jigsaw/workspace/phone');
   assert.equal(link.normalizeBusinessPhoneNumber('+8801815553036'), '+8801815553036');
+});
+
+const failureHelpers = compile(fs.readFileSync(path.join(__dirname, '../lib/voice-failures.ts'), 'utf8'));
+test('failed destination calls show the server failure and distinguish caller ID setup from normal hangups', () => {
+  assert.equal(failureHelpers.callFailureMessage({status:'failed', failure_reason:'Telnyx 10009: No outbound voice profile'}), 'Telnyx 10009: No outbound voice profile');
+  assert.match(failureHelpers.callFailureMessage({status:'failed', hangup_cause:'no_main_number'}), /No active main business number/);
+  assert.equal(failureHelpers.callFailureMessage({status:'completed',hangup_cause:'normal_clearing'}), '');
+  assert.match(failureHelpers.rtcFailureMessage({cause:'NO_ANSWER',sipCode:480}), /NO_ANSWER \/ SIP 480/);
+});
+test('incomplete backend setup blocks dialing before any microphone or provider request', async () => {
+  let mediaRequests=0;
+  const p = phone({ phoneSetup: {local_checks_ok:false}, ensureMicrophoneReady: async () => {mediaRequests++;} });
+  await p.dial();
+  assert.equal(mediaRequests,0);
+  assert.equal(p.calls.length,0);
+});
+
+test('rechecking configured caller ID lets the next explicit Call action proceed', async () => {
+  const p = phone({phoneSetup:{local_checks_ok:false}});
+  await p.dial();
+  assert.equal(p.calls.length,0);
+  p.context.phoneSetup.local_checks_ok=true;
+  await p.dial();
+  assert.equal(p.calls.length,1);
+});
+
+test('phone header and caller ID load the backend voice number rather than an organization contact number', async () => {
+  let mainNumber, org, result;
+  const cfg={current:{callerId:'old-general-number'}};
+  const setup={local_checks_ok:true, main_number:'+441316001234', organization_name:'Voice agency'};
+  const load=getFunction('loadPhoneSetup', {
+    useCallback:fn=>fn, apiRequest:async url=>{assert.equal(url,'/voice/api/setup/');return setup;},
+    setPhoneSetupBusy(){},setPhoneSetupError(){},setPhoneSetup:value=>{result=value;},
+    setMainNumber:value=>{mainNumber=value;},setOrgName:value=>{org=value;},cfgRef:cfg
+  });
+  await load();
+  assert.equal(result,setup);
+  assert.equal(mainNumber,'+441316001234');
+  assert.equal(cfg.current.callerId,mainNumber);
+  assert.equal(org,'Voice agency');
 });
