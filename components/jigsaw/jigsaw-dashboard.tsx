@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import Link from 'next/link';
 import { BusinessPhoneLink } from './business-phone-link';
 import { DeleteContactButton } from './delete-contact-button';
+import { RecordContactSelector } from './record-contact-selector';
 import { TelnyxMessagingSettings, TelnyxTemplateSettings } from './telnyx-messaging-settings';
 import { JobAdderMappingSettings } from './jobadder-mapping-settings';
 import { VoiceAnalysisPanel } from './voice-analysis-panel';
@@ -421,10 +422,15 @@ function ShiftPanel() {
 }
 
 function MatchRecordPicker({ alert, onComplete }: { alert: Alert; onComplete: () => void }) {
-  const contacts = useResource<JsonRecord>('contacts/', { results: [] });
-  const [selected, setSelected] = useState(''), [busy, setBusy] = useState(false), [failure, setFailure] = useState(''), [creating, setCreating] = useState(false);
+  const [selected, setSelected] = useState(''), [busy, setBusy] = useState(false), [failure, setFailure] = useState(''), [creating, setCreating] = useState(false), [revision, setRevision] = useState(0);
+  const candidateOnly = alert.payload?.record_kind === 'candidate';
   const choose = async () => { setBusy(true); setFailure(''); try { await jigsaw('alerts/', 'PATCH', { uid: alert.uid, contact_uid: selected }); onComplete(); } catch (error) { setFailure((error as Error).message); } finally { setBusy(false); } };
-  return <div className="jigsaw-form" style={{ width: '100%' }}><div className="jigsaw-inline"><select className="jigsaw-input" style={{ maxWidth: 300 }} value={selected} onChange={(event) => setSelected(event.target.value)} aria-label="Select matching ATS record"><option value="">Choose the correct ATS record…</option>{results<Contact>(contacts.data).filter((contact) => !!contact.ats_id).map((contact) => <option key={contact.uid} value={contact.uid}>{contact.name} · {contact.phone}</option>)}</select><button type="button" className="jigsaw-btn jigsaw-btn-primary" disabled={busy || !selected} onClick={choose}>Link selected record</button></div>{failure && <Notice tone="error">{failure}</Notice>}{contacts.error && <p className="jigsaw-small">{contacts.error}</p>}<div><button type="button" className="jigsaw-link" aria-expanded={creating} onClick={() => setCreating((value) => !value)}>{creating ? 'Cancel new client' : 'This is a new client…'}</button></div>{creating && <NewClientForm alert={alert} onComplete={contacts.reload} />}</div>;
+  return <div className="jigsaw-form" style={{ width: '100%' }}>
+    <RecordContactSelector value={selected} onChange={setSelected} disabled={busy} candidateOnly={candidateOnly} initialSearch={String(alert.payload?.phone || alert.payload?.phone_number || '')} revision={revision} />
+    <div><button type="button" className="jigsaw-btn jigsaw-btn-primary" disabled={busy || !selected} onClick={choose}>{busy ? <Loader2 size={14} className="animate-spin" /> : null}Link selected record</button></div>
+    {failure && <Notice tone="error">{failure}</Notice>}
+    {!candidateOnly && <><div><button type="button" className="jigsaw-link" aria-expanded={creating} onClick={() => setCreating((value) => !value)}>{creating ? 'Cancel new client' : 'This is a new client…'}</button></div>{creating && <NewClientForm alert={alert} onComplete={() => setRevision((value) => value + 1)} />}</>}
+  </div>;
 }
 function NewClientForm({ alert, onComplete }: { alert: Alert; onComplete: () => void }) {
   const [firstName, setFirstName] = useState(''), [lastName, setLastName] = useState(''), [email, setEmail] = useState(''), [phone, setPhone] = useState(String(alert.payload?.phone || alert.payload?.phone_number || ''));
