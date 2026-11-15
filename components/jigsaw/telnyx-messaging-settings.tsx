@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Check, CheckCircle2, ExternalLink, Info, Loader2, MessageCircle, RefreshCw, ShieldCheck, Unplug } from 'lucide-react';
 import { jigsaw, results, type AgencySettings, type JsonRecord } from '@/services/jigsaw-service';
+import { WHATSAPP_TEMPLATE_WORKFLOWS, withoutGeneratedTermsTemplates, templateVariableHint } from './whatsapp-template-workflows';
 
 interface MessagingConnection {
   uid: string;
@@ -32,7 +33,6 @@ interface WhatsAppAccount { waba_id: string; name: string; status: string; }
 type WhatsAppConnectionMethod = 'hosted' | 'telnyx';
 interface SenderNumber { phone_number: string; display_name?: string; status: string; ready?: boolean; coexistence_state?: string; messaging_profile_id?: string; }
 interface ProviderTemplate { id: string; name: string; language: string; status: string; components?: { type: string; text?: string }[]; }
-const WORKFLOWS = ['document_request', 'shift_offer', 'missed_call_reply', 'document_chaser', 'kid', 'toe', 'shift_filled', 'order_alert'];
 const ACCOUNT_CHANGED_EVENT = 'jigsaw-telnyx-account-changed';
 const notifyAccountChanged = () => window.dispatchEvent(new Event(ACCOUNT_CHANGED_EVENT));
 const label = (value: string) => value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -313,7 +313,7 @@ export function TelnyxTemplateSettings() {
   }, []);
   useEffect(() => {
     let active = true;
-    jigsaw<AgencySettings>('settings/').then((data) => { if (active) { setTemplates(data.settings.templates || {}); setSettingsLoaded(true); } }).catch((error) => { if (active) setFailure(errorText(error)); }).finally(() => { if (active) setLoading(false); });
+    jigsaw<AgencySettings>('settings/').then((data) => { if (active) { setTemplates(withoutGeneratedTermsTemplates(data.settings.templates || {})); setSettingsLoaded(true); } }).catch((error) => { if (active) setFailure(errorText(error)); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);
   const loadApproved = async () => {
@@ -334,30 +334,32 @@ export function TelnyxTemplateSettings() {
     try {
       // Fetch the other settings again so this panel cannot overwrite changes made in another panel.
       const current = await jigsaw<AgencySettings>('settings/');
-      await jigsaw('settings/', 'PATCH', { settings: { ...current.settings, templates } });
+      await jigsaw('settings/', 'PATCH', { settings: { ...current.settings, templates: withoutGeneratedTermsTemplates(templates) } });
       setFeedback('Workflow template mappings saved. Telnyx checks approval again when a message is sent.');
     } catch (error) { setFailure(errorText(error)); } finally { setBusy(''); }
   };
   const update = (workflow: string, value: JsonRecord) => setTemplates((current) => ({ ...current, [workflow]: value }));
-  return <section className="jigsaw-card"><div className="jigsaw-card-header"><div><h2>Approved WhatsApp templates</h2><p>Match each workflow to an approved template in your agency’s connected Telnyx account.</p></div><button className="jigsaw-btn" disabled={!!busy || loading} onClick={loadApproved}><RefreshCw size={14} /> Load approved templates</button></div><div className="jigsaw-card-pad">
+  return <section className="jigsaw-card"><div className="jigsaw-card-header"><div><h2>Approved WhatsApp templates</h2><p>Choose approved templates for the automations your agency uses. The other mappings can stay empty.</p></div><button className="jigsaw-btn" disabled={!!busy || loading} onClick={loadApproved}><RefreshCw size={14} /> Load approved templates</button></div><div className="jigsaw-card-pad">
     {loading ? <div className="jigsaw-inline" role="status"><span className="jigsaw-spinner" />Loading template mappings…</div> : <form className="jigsaw-form" onSubmit={save}>
       <Notice>Outside the 24-hour WhatsApp reply window, use an approved template. Submit templates in Telnyx first, then load them here. Their approved wording is kept intact.</Notice>
+      <Notice>After candidate documents arrive, the existing PAYE/CIS flow generates KID and TOE automatically. No KID or TOE WhatsApp templates are needed. The document request WhatsApp message uses its approved template; the upload form link is reserved for SMS fallback.</Notice>
       {inventoryError && <Notice error>{inventoryError}</Notice>}
       {inventoryLoaded && available.length === 0 && <Notice>No approved templates were returned for this agency. Confirm the selected WhatsApp sender and the approval status in Telnyx.</Notice>}
-      <div className="jigsaw-template-grid">{WORKFLOWS.map((workflow) => {
+      <div className="jigsaw-template-grid">{WHATSAPP_TEMPLATE_WORKFLOWS.map(({ key: workflow, description, optional }) => {
         const mapping = templates[workflow] || {};
         const legacy = !!mapping.content_sid && mapping.provider !== 'telnyx';
         const chosen = available.find((template) => mapping.provider === 'telnyx' && (mapping.template_id ? template.id === mapping.template_id : template.name === mapping.name && template.language === mapping.language));
         const selected = chosen ? templateIdentifier(chosen) : mapping.template_id || mapping.name ? '__saved' : legacy ? '__legacy' : '';
-        return <div className="jigsaw-template-entry jigsaw-form" key={workflow}><div className="jigsaw-inline justify-between"><h3>{label(workflow)}</h3>{chosen ? <span className="jigsaw-badge green"><CheckCircle2 size={11} /> Approved in Telnyx</span> : legacy ? <span className="jigsaw-badge">Existing legacy template</span> : <span className="jigsaw-badge amber">{mapping.approved ? 'Saved mapping' : 'Template needed'}</span>}</div>
+        return <div className="jigsaw-template-entry jigsaw-form" key={workflow}><div className="jigsaw-inline justify-between"><h3>{label(workflow)}</h3>{chosen ? <span className="jigsaw-badge green"><CheckCircle2 size={11} /> Approved in Telnyx</span> : legacy ? <span className="jigsaw-badge">Existing legacy template</span> : <span className="jigsaw-badge amber">{mapping.approved ? 'Saved mapping' : optional ? 'Optional · not configured' : 'Not configured'}</span>}</div>
+          <p className="jigsaw-small" style={{ margin: 0 }}>{description}</p>
           <Field title={`${label(workflow)} template`}><select className="jigsaw-input" value={selected} disabled={!!busy} onChange={(event) => {
             const template = available.find((item) => templateIdentifier(item) === event.target.value);
             if (event.target.value === '__saved' || event.target.value === '__legacy') return;
             update(workflow, template ? { provider: 'telnyx', approved: true, ...(template.id ? { template_id: template.id } : {}), name: template.name, language: template.language, body: templateBody(template), parameters: variableCount(templateBody(template)) === 1 ? ['{message}'] : [], sms_body: mapping.sms_body || '' } : { approved: false, provider: 'telnyx', body: '', sms_body: mapping.sms_body || '' });
           }}><option value="">Choose an approved Telnyx template…</option>{selected === '__saved' && <option value="__saved">Saved: {mapping.name || mapping.template_id} · Load templates to verify</option>}{legacy && <option value="__legacy">Keep the existing legacy mapping</option>}{available.map((template) => <option key={templateIdentifier(template)} value={templateIdentifier(template)}>{template.name} · {template.language}</option>)}</select></Field>
           {(mapping.body || chosen) && <Field title="Approved message wording"><textarea className="jigsaw-input" readOnly value={mapping.body || ''} /></Field>}
-          {mapping.provider === 'telnyx' && !!mapping.approved && <Field title="Template variable values (in order)" hint={`This wording has ${variableCount(mapping.body || '')} body variable(s). Use one value per line in placeholder order. Supported values: {message}, {name}, {phone}, {upload_link}, or plain text. Leave empty when there are no variables.`}><textarea className="jigsaw-input" value={(Array.isArray(mapping.parameters) ? mapping.parameters : []).join('\n')} onChange={(event) => update(workflow, { ...mapping, parameters: event.target.value ? event.target.value.split('\n') : [] })} placeholder="{name}&#10;{upload_link}" /></Field>}
-          <Field title="SMS fallback text" hint="Document requests must include the secure upload link."><textarea className="jigsaw-input" value={mapping.sms_body || ''} onChange={(event) => update(workflow, { ...mapping, sms_body: event.target.value })} /></Field>
+          {mapping.provider === 'telnyx' && !!mapping.approved && <Field title="Template variable values (in order)" hint={templateVariableHint(workflow, variableCount(mapping.body || ''))}><textarea className="jigsaw-input" value={(Array.isArray(mapping.parameters) ? mapping.parameters : []).join('\n')} onChange={(event) => update(workflow, { ...mapping, parameters: event.target.value ? event.target.value.split('\n') : [] })} placeholder={'{name}\n{message}'} /></Field>}
+          <Field title="SMS fallback text" hint={workflow === 'document_request' || workflow === 'document_chaser' ? 'Used only after WhatsApp failure or delivery timeout. The configured secure upload form link is included in the fallback SMS.' : 'Used only after WhatsApp failure or delivery timeout.'}><textarea className="jigsaw-input" value={mapping.sms_body || ''} onChange={(event) => update(workflow, { ...mapping, sms_body: event.target.value })} /></Field>
         </div>;
       })}</div>
       {feedback && <Notice>{feedback}</Notice>}{failure && <Notice error>{failure}</Notice>}
