@@ -2,6 +2,7 @@ import type { JsonRecord } from '@/services/jigsaw-service';
 
 export const WHATSAPP_TEMPLATE_WORKFLOWS = [
   { key: 'document_request', optional: false, description: 'Ask the candidate to reply with their documents in WhatsApp. Choose a template without the upload form link; that link is sent only in SMS fallback.' },
+  { key: 'onboarding_start', optional: true, description: 'After email documents pass the name/date checks, ask the candidate to reply PAYE or CIS. This approved payment-choice template opens the existing generated KID/TOE flow; it does not contain KID or TOE documents.' },
   { key: 'shift_offer', optional: true, description: 'Use only for candidate shift-fill automation. Asks suitable candidates whether they are available for a shift.' },
   { key: 'missed_call_reply', optional: true, description: 'Use only for missed-call follow-up. Acknowledges the missed call and tells the caller a consultant will call back.' },
   { key: 'document_chaser', optional: true, description: 'Use only for automatic document reminders after the configured delay. An approved template is needed outside the 24-hour reply window; leaving this mapping empty does not turn reminders off.' },

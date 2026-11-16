@@ -35,3 +35,5 @@
 .jigsaw-template-entry textarea[readonly]{background:#f9fafb;color:#475467}
 @media(max-width:800px){.jigsaw-messaging-readiness,.jigsaw-template-grid,.jigsaw-signup-choices{grid-template-columns:1fr}}
 @media(max-width:640px){.jigsaw-messaging-readiness>div{padding:14px;gap:9px}.jigsaw-messaging-readiness .jigsaw-icon{display:none}.jigsaw-signup-choices>label{padding:15px}.jigsaw-signup-sessions .jigsaw-rule{align-items:flex-start;flex-wrap:wrap}.jigsaw-template-entry{padding:15px}.jigsaw-messaging-section .jigsaw-section-title{flex-wrap:wrap}.jigsaw-template-entry .jigsaw-badge{white-space:normal;line-height:1.4}}
+
+.jigsaw-m365 label.jigsaw-inline{display:grid;grid-template-columns:16px minmax(0,1fr);align-items:start;column-gap:9px}.jigsaw-m365 input[type=checkbox]{margin-top:3px}.jigsaw-m365 .jigsaw-table input[type=number]{min-width:105px}.jigsaw-m365 .jigsaw-table-wrap{overflow-x:auto}@media(max-width:640px){.jigsaw-m365 .jigsaw-card-header{flex-direction:column;align-items:flex-start}.jigsaw-m365 .jigsaw-card-header>.jigsaw-inline{width:100%}}

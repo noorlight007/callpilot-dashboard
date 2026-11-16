@@ -55,3 +55,14 @@ test('a failed JobAdder save remains visible without exposing arbitrary provider
   assert.doesNotMatch(html, /SECRET|private key|Saved in JobAdder/);
   assert.match(markup({ expiry_date: '2027-02-14' }), /Waiting to save in JobAdder/);
 });
+
+
+test('document checks show holder, issue date and review reasons without claiming verification', () => {
+  const html = renderToStaticMarkup(React.createElement(moduleContext.exports.DocumentExpiry, { document: {
+    check_status: 'needs_review', name_on_document: '<Other Person>', issue_date: '2020-01-01', check_issues: ['Printed holder name does not match.'],
+  } }));
+  assert.match(html, /Printed holder: &lt;Other Person&gt;/);
+  assert.match(html, /Issue date: 2020-01-01/);
+  assert.match(html, /Printed holder name does not match/);
+  assert.doesNotMatch(html, /Name\/date checks passed/);
+});
