@@ -32,9 +32,15 @@ export function documentExpiryDetails(document: JsonRecord, today = new Date()) 
 
 export function DocumentExpiry({ document }: { document: JsonRecord }) {
   const details = documentExpiryDetails(document);
-  if (!details) return null;
-  return <div className="jigsaw-inline mt-2" style={{ gap: 8 }}>
-    {details.label && <span className={`jigsaw-badge ${details.tone}`}>{details.label}</span>}
-    <span className="jigsaw-small">{details.description}</span>
-  </div>;
+  const hasChecks = !!document.check_status || !!document.issue_date;
+  if (!details && !hasChecks) return null;
+  return <div className="jigsaw-form mt-2" style={{ gap: 8 }}><div className="jigsaw-inline" style={{ gap: 8 }}>
+    {details?.label && <span className={`jigsaw-badge ${details?.tone}`}>{details?.label}</span>}
+    <span className="jigsaw-small">{details?.description}</span>
+  </div>{hasChecks && <div className="jigsaw-small">
+    {document.name_on_document && <div>Printed holder: {String(document.name_on_document)}</div>}
+    {document.issue_date && <div>Issue date: {String(document.issue_date)}</div>}
+    {document.check_status && <div>{document.check_status === 'passed' ? 'Name/date checks passed; consultant verification still required.' : document.check_status === 'needs_review' ? 'Name/date checks need review.' : 'Name/date checks not applicable.'}</div>}
+    {Array.isArray(document.check_issues) && document.check_issues.map((issue: string, index: number) => <div key={index}>{issue}</div>)}
+  </div>}</div>;
 }
