@@ -13,7 +13,7 @@ import { RecordContactSelector } from './record-contact-selector';
 
 const ROOT = '/dashboard/ai-jigsaw';
 const dateText = (value?: string) => value ? new Date(value).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
-const title = (value: string) => value.replace(/_/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase());
+const title = (value: string) => value.replace(/_/g, ' ').replace(/\bagencies\b/gi, 'businesses').replace(/\bagency\b/gi, 'business').replace(/\b\w/g, letter => letter.toUpperCase());
 function Notice({ children, error = false }: { children: ReactNode; error?: boolean }) { return <div className={`jigsaw-notice${error ? ' error' : ''}`} role={error ? 'alert' : 'status'}><Info size={16} /><div>{children}</div></div>; }
 function Loading() { return <div className="jigsaw-empty" role="status"><Loader2 size={20} className="animate-spin" />Loading messages…</div>; }
 

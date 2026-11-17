@@ -9,7 +9,7 @@ export function callFailureMessage(call: VoiceFailure): string {
     if (call.failure_reason) return call.failure_reason
     if (call.status !== "failed") return ""
     const causes: Record<string, string> = {
-        no_main_number: "No active main business number is configured for your agency. Ask your administrator to set the voice caller ID.",
+        no_main_number: "No active main business number is configured for your business. Ask your administrator to set the voice caller ID.",
         missing_call_control_app: "The backend Voice API application ID is missing. Ask your administrator to complete the Telnyx voice setup.",
         invalid_number: "The destination number is invalid. Use international format.",
         dial_failed: "Telnyx could not create the destination call. Ask your administrator to check the provider error and outbound voice profile."
