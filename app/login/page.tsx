@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { authService, cookieUtils } from "@/services/auth-service";
 import { profileService } from "@/services/profile-service";
+import { mcpLoginDestination } from "@/lib/mcp-authorization";
 
 export default function SignInPage() {
     const router = useRouter();
@@ -63,7 +64,7 @@ export default function SignInPage() {
                 const statusRes = await profileService.getPlatformStatus();
                 const complianceStatus = statusRes.data.compliance_status;
                 if (complianceStatus !== "" && complianceStatus !== null && complianceStatus !== "rejected") {
-                    router.push("/dashboard");
+                    router.push(mcpLoginDestination(window.location.search) || "/dashboard");
                 } else {
                     router.push("/activation");
                 }
@@ -78,7 +79,7 @@ export default function SignInPage() {
                     const refreshData = await refreshRes.json();
                     cookieUtils.set("access", refreshData.access, 7);
                     cookieUtils.set("refresh", refreshData.refresh, 7);
-                    router.push("/activation");
+                    await verifyAndRedirect(refreshData.access, refreshData.refresh || refreshTokenStr);
                 } else {
                     setStep("login");
                     cookieUtils.set("access", "", -1);
@@ -114,7 +115,7 @@ export default function SignInPage() {
                     const statusRes = await profileService.getPlatformStatus();
                     const complianceStatus = statusRes.data.compliance_status;
                     if (complianceStatus !== "" && complianceStatus !== null && complianceStatus !== "rejected") {
-                        router.push("/dashboard");
+                        router.push(mcpLoginDestination(window.location.search) || "/dashboard");
                     } else {
                         router.push("/activation");
                     }
