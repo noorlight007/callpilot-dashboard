@@ -19,7 +19,7 @@ const COLORS: Record<string, string> = { green: 'Completed', amber: 'Check neede
 const STATUSES = ['queued', 'processing', 'completed', 'needs_review', 'needs_match', 'waiting_media', 'failed', 'observed'];
 const errorText = (error: unknown) => error instanceof Error ? error.message : 'Unable to complete this request.';
 const dateText = (value: unknown) => typeof value === 'string' && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString() : 'Not available';
-const title = (value: unknown) => String(value || '').replace(/_/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase());
+const title = (value: unknown) => String(value || '').replace(/_/g, ' ').replace(/\bagencies\b/gi, 'businesses').replace(/\bagency\b/gi, 'business').replace(/\b\w/g, letter => letter.toUpperCase());
 const safeLink = (value: unknown) => { try { const url = new URL(String(value)); return url.protocol === 'https:' ? url.href : ''; } catch { return ''; } };
 
 export function emailList(value: string): string[] {
@@ -118,7 +118,7 @@ export function Microsoft365Workflows() {
       {loading ? <Loading /> : failure && !status ? <Notice error>{failure}</Notice> : status && <div className="jigsaw-form">
         <div className="jigsaw-inline"><span className={`jigsaw-badge ${status.enabled ? 'green' : 'amber'}`}>{status.enabled ? 'Connection enabled' : 'Connection disabled'}</span><span className="jigsaw-badge">{status.mode === 'live' ? 'Live automations' : 'Alerts only / observation'}</span><span className="jigsaw-small">Last catch-up: {dateText(status.last_sync_at)}</span></div>
         {status.last_error_code && <Notice error>Microsoft 365 needs attention: {title(status.last_error_code)}. Check access and the activity below.</Notice>}
-        {status.can_manage === false ? <Notice>An agency owner or administrator configures mailbox access and these workflows.</Notice> : <>
+        {status.can_manage === false ? <Notice>A business owner or administrator configures mailbox access and these workflows.</Notice> : <>
           <div className="jigsaw-inline">{STATUSES.filter(key => typeof status.queue?.[key] === 'number').map(key => <span className="jigsaw-small" key={key}><strong>{status.queue[key]}</strong> {title(key)}</span>)}</div>
           {Array.isArray(status.subscriptions) && <div className="jigsaw-table-wrap"><table className="jigsaw-table"><thead><tr><th>Mailbox webhook</th><th>Status</th><th>Expires</th></tr></thead><tbody>{status.subscriptions.length ? status.subscriptions.map((item: JsonRecord) => <tr key={item.mailbox}><td>{item.mailbox}</td><td>{title(item.status)}{item.error_code && <span className="block jigsaw-small">{title(item.error_code)}</span>}</td><td>{dateText(item.expires_at)}</td></tr>) : <tr><td colSpan={3}>No active webhook details returned. Enable webhooks after saving the approved mailbox selection.</td></tr>}</tbody></table></div>}
           {(status.notification_url || status.lifecycle_url) && <details className="jigsaw-small"><summary>Microsoft callback addresses</summary>{[['Message notifications', status.notification_url], ['Lifecycle notifications', status.lifecycle_url]].map(([label, value]) => value && <p key={label} style={{ overflowWrap: 'anywhere' }}><strong>{label}:</strong> {value}</p>)}</details>}
