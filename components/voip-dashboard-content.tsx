@@ -1739,8 +1739,8 @@ export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber,
                 {/* Header matching HTML template */}
                 <div className="p-4 rounded-2xl border border-border/70 bg-card shadow-sm space-y-2">
                     <div className="flex items-center justify-between">
-                        <h1 className="text-xl font-bold tracking-tight text-foreground uppercase">
-                            VOIP Business Phone
+                        <h1 className={`text-xl font-bold tracking-tight text-foreground${embedded ? "" : " uppercase"}`}>
+                            {embedded ? "VoIP Business Lines" : "VOIP Business Phone"}
                         </h1>
                         <Badge
                             id="status"
