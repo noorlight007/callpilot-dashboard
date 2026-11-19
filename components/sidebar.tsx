@@ -32,6 +32,7 @@ import {
   CreditCard,
   MessageSquare,
   HelpCircle,
+  FlaskConical,
 } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -90,6 +91,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       { icon: Phone, label: 'Business Phone Numbers', href: '/dashboard/phone-numbers', isBold: true },
       { label: 'AI Flows', isHeader: true },
       { icon: Shuffle, label: 'AI Call Builder', href: '/dashboard/phone-call-flows', isBold: true },
+      { icon: FlaskConical, label: 'Testing Screening', href: '/dashboard/testing-screening', isBold: true },
       { label: 'Report', isHeader: true },
       { icon: FileText, label: 'Call Activity', href: '/dashboard/call-logs', isBold: true },
     ];
