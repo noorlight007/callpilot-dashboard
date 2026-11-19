@@ -11,14 +11,15 @@ export function normalizeBusinessPhoneNumber(value: unknown): string | null {
   return /^(?:\+[1-9]\d{6,14}|\d{3,15})$/.test(number) ? number : null;
 }
 
-export function businessPhoneHref(number?: string): string {
+export function businessPhoneHref(number?: string, channel?: "phone" | "whatsapp"): string {
   const normalized = normalizeBusinessPhoneNumber(number);
-  return `${BUSINESS_PHONE_PATH}${normalized ? `?dial=${encodeURIComponent(normalized)}` : ''}`;
+  const query = [normalized ? `dial=${encodeURIComponent(normalized)}` : '', channel === 'whatsapp' ? 'channel=whatsapp' : ''].filter(Boolean).join('&');
+  return `${BUSINESS_PHONE_PATH}${query ? `?${query}` : ''}`;
 }
 
-type BusinessPhoneLinkProps = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href' | 'target' | 'rel'> & { number?: string };
+type BusinessPhoneLinkProps = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href' | 'target' | 'rel'> & { number?: string; channel?: "phone" | "whatsapp" };
 
 /** Navigate in the existing Jigsaw tab; its layout keeps the phone mounted. */
-export function BusinessPhoneLink({ number, children, ...props }: BusinessPhoneLinkProps) {
-  return <Link {...props} href={businessPhoneHref(number)}>{children}</Link>;
+export function BusinessPhoneLink({ number, channel, children, ...props }: BusinessPhoneLinkProps) {
+  return <Link {...props} href={businessPhoneHref(number, channel)}>{children}</Link>;
 }

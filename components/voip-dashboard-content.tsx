@@ -10,6 +10,8 @@ import { callFailureMessage, rtcFailureMessage } from "@/lib/voice-failures"
 import { createAuthorizedCall, fetchTelnyxToken, getVoiceRegistration, loadTelnyxSdk } from "@/lib/voip-connection"
 import { cookieUtils } from "@/services/auth-service"
 import { profileService } from "@/services/profile-service"
+import { useWhatsAppCalling } from "@/hooks/use-whatsapp-calling"
+import { callChannelLabel, isWhatsAppNumber, rtcCallChannel, whatsAppCalling, whatsAppPermissionAllowsCall } from "@/services/whatsapp-calling-service"
 import {
     ArrowLeft,
     Phone,
@@ -42,6 +44,8 @@ interface CallItem {
     uid?: string;
     id?: string | number;
     direction: "inbound" | "outbound";
+    channel?: "phone" | "whatsapp";
+    business_number?: string;
     status: string;
     number: string;
     contact_uid?: string | null;
@@ -112,6 +116,7 @@ interface CallerLookupState {
 }
 
 export interface PhoneSessionState {
+    channel?: "phone" | "whatsapp";
     status: "online" | "offline" | "connecting";
     active: boolean;
     incoming: boolean;
@@ -122,6 +127,7 @@ interface VoipDashboardContentProps {
     flowUid?: string;
     embedded?: boolean;
     prefillNumber?: string | null;
+    prefillChannel?: "phone" | "whatsapp";
     onPhoneStateChange?: (state: PhoneSessionState) => void;
 }
 
@@ -131,7 +137,7 @@ const safeAtsUrl = (value?: string) => {
     try { const url = new URL(value || ""); return url.protocol === "https:" ? url.href : "" } catch { return "" }
 }
 
-export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber, onPhoneStateChange }: VoipDashboardContentProps) {
+export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber, prefillChannel, onPhoneStateChange }: VoipDashboardContentProps) {
     const router = useRouter()
     const VOICE_BASE = BASE_URL
 
@@ -163,6 +169,9 @@ export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber,
     const [phoneSetupBusy, setPhoneSetupBusy] = useState(false)
     const [isDialing, setIsDialing] = useState(false)
     const [dialNumber, setDialNumber] = useState("")
+    const [callType, setCallType] = useState<"phone" | "whatsapp">("phone")
+    const whatsAppTarget = normalizeBusinessPhoneNumber(dialNumber) || ""
+    const whatsApp = useWhatsAppCalling(whatsAppTarget, callType === "whatsapp")
     const [currentTab, setCurrentTab] = useState<"recent" | "missed" | "voicemail">("recent")
 
     // Active & Incoming Call States
@@ -213,6 +222,7 @@ export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber,
     const clientDisconnectRef = useRef<Promise<void>>(Promise.resolve())
     const userEndedCallsRef = useRef<Set<string>>(new Set())
     const dialedNumberRef = useRef<string>("")
+    const whatsAppCallIdsRef = useRef<Set<string>>(new Set())
     const isDialingRef = useRef<boolean>(false)
     const callerLookupPhoneRef = useRef<string>("")
     const callerLookupRequestRef = useRef<number>(0)
@@ -242,7 +252,8 @@ export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber,
         if (requested && !activeCallRef.current && !incomingCallRef.current && !isDialingRef.current) {
             setDialNumber(requested);
         }
-    }, [prefillNumber]);
+        if (prefillChannel && !activeCallRef.current && !incomingCallRef.current && !isDialingRef.current) setCallType(prefillChannel);
+    }, [prefillNumber, prefillChannel]);
 
     // Keep refs synchronized
     useEffect(() => {
@@ -646,6 +657,7 @@ export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber,
 
         // Keep the actual object used for answering in React/ref state so subsequent
         // callUpdate events and Answer/Decline actions refer to the same instance.
+        if (rtcCallChannel(call) === "whatsapp") whatsAppCallIdsRef.current.add(callId(call))
         incomingCallRef.current = call
         setIncomingCall(call)
 
@@ -830,6 +842,8 @@ export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber,
         }
     }, [VOICE_BASE])
 
+    const channelOfCall = (call: any) => rtcCallChannel(call) === "whatsapp" || (call && whatsAppCallIdsRef.current.has(callId(call))) ? "whatsapp" : "phone"
+
     // Incoming Call UI handling
     const showIncoming = (call: any) => {
         const id = callId(call)
@@ -903,6 +917,7 @@ export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber,
 
         if (incomingCallRef.current && (!call || sameCall(incomingCallRef.current, call))) {
             const endingIncoming = incomingCallRef.current
+            whatsAppCallIdsRef.current.delete(callId(endingIncoming))
             setIncomingCall(null)
             incomingCallRef.current = null
             stopRinger(call || endingIncoming)
@@ -913,6 +928,7 @@ export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber,
         }
 
         if (activeCallRef.current && (!call || sameCall(activeCallRef.current, call))) {
+            whatsAppCallIdsRef.current.delete(callId(activeCallRef.current))
             setActiveCall(null)
             activeCallRef.current = null
             clearInterval(timerIdRef.current)
@@ -1458,6 +1474,53 @@ export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber,
         }
     }
 
+    const dialWhatsApp = async (number?: string) => {
+        const target = normalizeBusinessPhoneNumber(number || dialNumber) || ""
+        if (!isWhatsAppNumber(target)) { setCallError("Use an international WhatsApp number, for example +44…"); return }
+        if (isDialingRef.current) return
+        if (!whatsApp.setup?.outbound_ready) { setCallError("WhatsApp calling is unavailable. Check WhatsApp calling setup with your administrator."); return }
+        if (!whatsAppPermissionAllowsCall(whatsApp.permission, target)) { setCallError("Check the recipient’s WhatsApp call permission before calling."); return }
+        if (!clientRef.current || !clientReadyRef.current) { setCallError("Phone is not ready yet. Wait for Online, then try again."); return }
+        if (activeCallRef.current || incomingCallRef.current) { setCallError("Finish the current call before starting another one."); return }
+        isDialingRef.current = true
+        setIsDialing(true); setCallError(null); setStatusDetail("Checking microphone…")
+        let localStream: MediaStream | null = null
+        try {
+            localStream = await ensureMicrophoneReady()
+            const client = clientRef.current
+            if (!client || !clientReadyRef.current || typeof client.newCall !== "function") throw new Error("Phone is not ready yet. Wait for Online, then try again.")
+            dialedNumberRef.current = target
+            setStatusDetail("Starting WhatsApp call…")
+            const call = await createAuthorizedCall(client, {
+                destinationNumber: target,
+                remoteCallerName: target,
+                remoteElement: "remoteAudio",
+                audio: true,
+                localStream
+            }, {
+                requestSession: () => whatsAppCalling.session(target),
+                currentClient: () => clientRef.current,
+                isReady: () => clientReadyRef.current,
+                hasPendingCall: () => !!(activeCallRef.current || incomingCallRef.current),
+                isDisposed: () => !connectionLifecycleRef.current || connectionLifecycleRef.current.signal.aborted
+            })
+            call.callpilotChannel = "whatsapp"
+            whatsAppCallIdsRef.current.add(callId(call))
+            localStream = null
+            activeCallRef.current = call
+            showActive(call, "Calling on WhatsApp…")
+            setDialNumber("")
+        } catch (error: any) {
+            stopMediaStream(localStream)
+            dialedNumberRef.current = ""
+            const message = friendlyMediaError(error)
+            setCallError(message); setStatusDetail(message)
+            whatsApp.refresh()
+        } finally { isDialingRef.current = false; setIsDialing(false) }
+    }
+
+    const startSelectedCall = (number?: string) => callType === "whatsapp" ? dialWhatsApp(number) : dial(number)
+
     // Transfer toggle & doTransfer matching portal.js
     const handleTransferToggle = async () => {
         const nextState = !showTransferPanel
@@ -1644,12 +1707,13 @@ export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber,
     const matchedCaller = callerLookup?.data?.match_state === "matched" ? callerLookup.data.contact : null
     const matchedIncomingCaller = callerLookup?.phone === phoneOfCall(incomingCall) ? matchedCaller : null
     const matchedActiveCaller = callerLookup?.phone === phoneOfCall(activeCall) ? matchedCaller : null
+    const currentCallChannel = channelOfCall(incomingCall || activeCall)
 
     useEffect(() => {
-        onPhoneStateChange?.({ status, active: !!activeCall, incoming: !!incomingCall, dialing: isDialing,
+        onPhoneStateChange?.({ channel: isDialing ? callType : currentCallChannel, status, active: !!activeCall, incoming: !!incomingCall, dialing: isDialing,
             label: incomingCall ? matchedIncomingCaller?.name || incomingCaller || "Incoming call"
                 : activeCall ? matchedActiveCaller?.name || activeWho || "Active call" : isDialing ? "Starting call" : status });
-    }, [status, activeCall, incomingCall, isDialing, matchedIncomingCaller?.name, matchedActiveCaller?.name, incomingCaller, activeWho, onPhoneStateChange]);
+    }, [status, activeCall, incomingCall, isDialing, callType, currentCallChannel, matchedIncomingCaller?.name, matchedActiveCaller?.name, incomingCaller, activeWho, onPhoneStateChange]);
 
     const arrow = { inbound: "↙", outbound: "↗" }
 
@@ -1825,10 +1889,10 @@ export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber,
                     <Card id="incoming" className="border-2 border-emerald-500 bg-emerald-500/5 dark:bg-emerald-950/20 shadow-md animate-pulse">
                         <CardContent className="p-4 space-y-3">
                             <div className="text-xs font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
-                                Incoming call
+                                {channelOfCall(incomingCall) === "whatsapp" ? "Incoming WhatsApp call" : "Incoming call"}
                             </div>
                             <div id="incoming-from" className="text-xl font-bold text-foreground truncate">
-                                Incoming call: {matchedIncomingCaller?.name || incomingCaller || "Unknown"}
+                                {channelOfCall(incomingCall) === "whatsapp" ? "WhatsApp call" : "Incoming call"}: {matchedIncomingCaller?.name || incomingCaller || "Unknown"}
                             </div>
                             {renderCallerLookupPanel(incomingCall)}
                             <div className="flex gap-2.5 pt-1">
@@ -1862,7 +1926,7 @@ export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber,
                             <div className="flex items-center justify-between gap-3">
                                 <div className="min-w-0 flex-1">
                                     <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                        Call In Progress
+                                        {channelOfCall(activeCall) === "whatsapp" ? "WhatsApp call in progress" : "Call In Progress"}
                                     </div>
                                     <div id="active-who" className="text-xl font-bold text-foreground truncate mt-0.5">
                                         {matchedActiveCaller?.name || activeWho}
@@ -1904,6 +1968,8 @@ export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber,
                                     variant={showTransferPanel ? "default" : "outline"}
                                     className="gap-1.5 h-10 font-medium border-border/80"
                                     onClick={handleTransferToggle}
+                                    disabled={channelOfCall(activeCall) === "whatsapp"}
+                                    title={channelOfCall(activeCall) === "whatsapp" ? "Transfers are unavailable for WhatsApp calls." : undefined}
                                 >
                                     <ArrowRightLeft className="w-4 h-4" />
                                     Transfer
@@ -2026,20 +2092,23 @@ export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber,
 
                 {/* Section: Dial */}
                 <Card className="border border-border/70 bg-card shadow-sm">
-                    <CardContent className="p-4">
+                    <CardContent className="p-4 space-y-3">
+                        <div className="flex gap-2" role="group" aria-label="Call type">
+                            {(["phone", "whatsapp"] as const).map(channel => <Button key={channel} type="button" size="sm" variant={callType === channel ? "default" : "outline"} aria-pressed={callType === channel} disabled={isDialing || !!activeCall || !!incomingCall} onClick={() => { setCallType(channel); setCallError(null) }}>{callChannelLabel(channel)}</Button>)}
+                        </div>
                         <div className="flex gap-2">
-                            <div className="relative flex-1">
+                            <div className="relative flex-1 min-w-0">
                                 <Phone className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
                                 <Input
                                     id="dial-input"
-                                    placeholder="Enter telephone number"
+                                    placeholder={callType === "whatsapp" ? "WhatsApp number, e.g. +44…" : "Enter telephone number"}
                                     inputMode="tel"
                                     autoComplete="off"
                                     className="pl-9 h-11 text-base font-medium rounded-xl"
                                     value={dialNumber}
                                     onChange={e => setDialNumber(e.target.value)}
                                     onKeyDown={e => {
-                                        if (e.key === "Enter") void dial(dialNumber)
+                                        if (e.key === "Enter") void startSelectedCall(dialNumber)
                                     }}
                                     disabled={isDialing}
                                 />
@@ -2047,13 +2116,25 @@ export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber,
                             <Button
                                 id="btn-call"
                                 className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold h-11 px-6 rounded-xl gap-2 shadow-sm shrink-0"
-                                onClick={() => void dial(dialNumber)}
-                                disabled={isDialing || status !== "online" || !!activeCall || !!incomingCall}
+                                onClick={() => void startSelectedCall(dialNumber)}
+                                disabled={isDialing || status !== "online" || !!activeCall || !!incomingCall || (callType === "whatsapp" && (whatsApp.loading || whatsApp.requesting || !whatsApp.setup?.outbound_ready || !whatsAppPermissionAllowsCall(whatsApp.permission, whatsAppTarget)))}
                             >
                                 {isDialing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />}
-                                {isDialing ? "CALLING" : "CALL"}
+                                {isDialing ? "CALLING" : callType === "whatsapp" ? "CALL WHATSAPP" : "CALL"}
                             </Button>
                         </div>
+                        {callType === "whatsapp" && <div className="text-xs space-y-2" aria-live="polite">
+                            <p className="text-muted-foreground">WhatsApp calls use {whatsApp.setup?.business_number || "your configured WhatsApp business number"}. Your recipient must grant call permission.</p>
+                            {whatsApp.loading ? <p role="status">Checking WhatsApp readiness and call permission…</p> : <>
+                                {whatsApp.failure ? <p role="alert" className="text-rose-600 dark:text-rose-400">{whatsApp.failure}</p> : !whatsApp.setup?.outbound_ready ? <p className="text-amber-700 dark:text-amber-400">WhatsApp calling is unavailable. <Link className="underline" href="/dashboard/ai-jigsaw/voip">Check calling setup</Link></p> : !isWhatsAppNumber(whatsAppTarget) ? <p>Enter the recipient’s international WhatsApp number to check call permission.</p> : whatsApp.permission?.number === whatsAppTarget ? <div className="space-y-1">
+                                    <p><strong>{whatsAppPermissionAllowsCall(whatsApp.permission, whatsAppTarget) ? "Call permission granted" : `Call permission: ${whatsApp.permission.status.replace(/_/g, " ")}`}</strong>{whatsApp.permission.detail && ` · ${whatsApp.permission.detail}`}</p>
+                                    {whatsApp.permission.expires_at && <p className="text-muted-foreground">Permission expires: {new Date(whatsApp.permission.expires_at).toLocaleString()}</p>}
+                                    {whatsApp.permission.can_request && !whatsAppPermissionAllowsCall(whatsApp.permission, whatsAppTarget) && <Button type="button" size="sm" variant="outline" disabled={whatsApp.requesting || isDialing || !!activeCall || !!incomingCall} onClick={() => void whatsApp.request()}>{whatsApp.requesting ? "Requesting…" : "Request call permission"}</Button>}
+                                    {!whatsAppPermissionAllowsCall(whatsApp.permission, whatsAppTarget) && <p className="text-muted-foreground">The recipient approves the request in WhatsApp. Requests need an active WhatsApp service window and follow WhatsApp request limits.</p>}
+                                </div> : <p>Call permission has not been checked.</p>}
+                            </>}
+                            <Button type="button" size="sm" variant="ghost" disabled={whatsApp.loading || whatsApp.requesting || isDialing} onClick={whatsApp.refresh}>Check again</Button>
+                        </div>}
                     </CardContent>
                 </Card>
 
@@ -2215,7 +2296,7 @@ export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber,
                                                         className={`font-semibold text-xs sm:text-sm truncate hover:underline cursor-pointer flex items-center gap-1.5 ${
                                                             isMissed ? "text-rose-600 dark:text-rose-400" : "text-foreground"
                                                         }`}
-                                                        onClick={() => setDialNumber(c.number)}
+                                                        onClick={() => { setDialNumber(c.number); setCallType(c.channel === "whatsapp" ? "whatsapp" : "phone") }}
                                                         title="Fill dial box with this number"
                                                     >
                                                         <span className="truncate">
@@ -2229,7 +2310,7 @@ export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber,
                                                         )}
                                                     </div>
                                                     <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
-                                                        {sub}
+                                                        {callChannelLabel(c.channel)} · {sub}
                                                     </div>
                                                     {callFailureMessage(c) && <p className="text-xs text-rose-600 dark:text-rose-400 mt-1 whitespace-normal break-words">{callFailureMessage(c)}</p>}
                                                     {c.contact_uid && <Link href={contactRecordHref(c.contact_uid)} className="text-[11px] text-primary hover:underline">Open AI Jigsaw record</Link>}
@@ -2239,9 +2320,9 @@ export function VoipDashboardContent({ flowUid, embedded = false, prefillNumber,
                                             <Button
                                                 variant="ghost"
                                                 size="sm"
-                                                onClick={() => void dial(c.number)}
+                                                onClick={() => { if (c.channel === "whatsapp") { setDialNumber(c.number); setCallType("whatsapp") } else void dial(c.number) }}
                                                 className="h-8 px-2 text-xs text-muted-foreground hover:text-emerald-600 shrink-0"
-                                                title="Call this number"
+                                                title={c.channel === "whatsapp" ? "Check WhatsApp call permission" : "Call this number"}
                                                 disabled={isDialing || status !== "online" || !!activeCall || !!incomingCall}
                                             >
                                                 <Phone className="w-3.5 h-3.5" />

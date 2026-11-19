@@ -19,12 +19,13 @@ export function JigsawPhoneHost({ children }: { children: ReactNode }) {
   const [activated, setActivated] = useState(visible);
   const [phone, setPhone] = useState<PhoneSessionState | null>(null);
   const number = normalizeBusinessPhoneNumber(search.get('dial'));
+  const channel = search.get('channel') === 'whatsapp' ? 'whatsapp' : 'phone';
   useEffect(() => { if (visible) setActivated(true); }, [visible]);
 
   return <>
     {activated && !visible && <div className="jigsaw-notice" role="status" style={{ position: 'sticky', top: 0, zIndex: 20, margin: '12px 16px' }}>
       <Phone size={16} /><div className="flex-1 min-w-0">
-        <strong>{phone?.incoming ? `Incoming call: ${phone.label}` : phone?.active || phone?.dialing ? `Call: ${phone.label}` : `Business phone: ${phone?.status || 'connecting'}`}</strong>
+        <strong>{phone?.incoming ? `${phone.channel === 'whatsapp' ? 'Incoming WhatsApp call' : 'Incoming call'}: ${phone.label}` : phone?.active || phone?.dialing ? `${phone.channel === 'whatsapp' ? 'WhatsApp call' : 'Call'}: ${phone.label}` : `Business phone: ${phone?.status || 'connecting'}`}</strong>
         <p className="jigsaw-small">Your phone remains connected while you use AI Jigsaw.</p>
       </div><Link className="jigsaw-btn" href={BUSINESS_PHONE_PATH}>{phone?.incoming ? 'Open incoming call' : 'Open phone'}</Link>
     </div>}
@@ -38,7 +39,7 @@ export function JigsawPhoneHost({ children }: { children: ReactNode }) {
           <Link className="jigsaw-btn" href="/dashboard/ai-jigsaw/workspace/voicemail">Voicemail</Link>
         </nav>
       </div>
-      <BusinessPhone embedded prefillNumber={number} onPhoneStateChange={setPhone} />
+      <BusinessPhone embedded prefillNumber={number} prefillChannel={channel} onPhoneStateChange={setPhone} />
     </section>}
   </>;
 }
