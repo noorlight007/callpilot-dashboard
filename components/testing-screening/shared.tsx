@@ -28,6 +28,7 @@ export function StatusBadge({ status, label }: { status: string; label?: string 
   return <span className={cn("inline-flex rounded-lg px-2.5 py-1 text-sm font-medium", statusStyles[status] || "bg-gray-100 text-gray-600")}>{label || humanize(status)}</span>;
 }
 export function humanize(value?: string | null) {
+  if (value === "CALL_PLACED") return "Called";
   return (value || "Pending").replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (char) => char.toUpperCase());
 }
 export function dateLabel(value?: string | null) {
