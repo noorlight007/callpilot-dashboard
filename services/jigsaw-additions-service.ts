@@ -13,21 +13,11 @@ export function publicSource(value: unknown): string | undefined {
 export function cleanupSettingsPayload(draft: JsonRecord) {
   const confidence = Number(draft.auto_confidence);
   if (!Number.isFinite(confidence) || confidence < .9 || confidence > 1) throw new Error('Automatic confidence must be between 90% and 100%.');
-  const catalogue = (Array.isArray(draft.catalogue) ? draft.catalogue : []).map((card: JsonRecord) => {
-    const field = card.expiry_field_id === '' || card.expiry_field_id == null ? null : Number(card.expiry_field_id);
-    if (field !== null && (!Number.isSafeInteger(field) || field < 1)) throw new Error(`Choose a positive JobAdder expiry field ID for ${card.name || card.key}.`);
-    const categories = Array.isArray(card.categories) ? card.categories : String(card.categories || '').split(',').map(x => x.trim()).filter(Boolean);
-    const { grade_categories_json, ...saved } = card;
-    let grades = card.grade_categories || {};
-    if (grade_categories_json !== undefined) { try { grades = JSON.parse(grade_categories_json); } catch { throw new Error(`Use a JSON object of grade names and categories for ${card.name || card.key}.`); } }
-    if (!grades || typeof grades !== 'object' || Array.isArray(grades) || Object.entries(grades).some(([key, value]) => !key.trim() || typeof value !== 'string' || !value.trim())) throw new Error(`Use a category name for each grade of ${card.name || card.key}.`);
-    return { ...saved, expiry_field_id: field, categories, grade_categories: grades };
-  });
   const days = Number(draft.renewal_reminder_days ?? 7);
   if (!Number.isSafeInteger(days) || days < 1 || days > 90) throw new Error('Reminder interval must be between 1 and 90 days.');
   return {
     enabled: !!draft.enabled, nightly_enabled: !!draft.nightly_enabled, messaging_enabled: !!draft.messaging_enabled,
-    auto_confidence: confidence, catalogue, opt_out_tags: Array.isArray(draft.opt_out_tags) ? draft.opt_out_tags : String(draft.opt_out_tags || '').split(',').map(x => x.trim()).filter(Boolean),
+    auto_confidence: confidence, opt_out_tags: Array.isArray(draft.opt_out_tags) ? draft.opt_out_tags : String(draft.opt_out_tags || '').split(',').map(x => x.trim()).filter(Boolean),
     out_of_date_tag: String(draft.out_of_date_tag || ''), renewal_template: String(draft.renewal_template || ''),
     renewal_reminder_days: days, email_from: String(draft.email_from || ''), notice_days: [60, 30, 0],
   };

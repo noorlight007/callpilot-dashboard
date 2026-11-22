@@ -17,11 +17,10 @@ function load(file, extras = {}) {
 }
 
 const api = load('services/jigsaw-additions-service.ts');
-test('cleanup requires readable date IDs and confidence of at least ninety percent', () => {
+test('cleanup settings need no candidate document mappings and ignore legacy catalogue values', () => {
   assert.throws(() => api.cleanupSettingsPayload({ auto_confidence: .89 }), /90%/);
-  assert.throws(() => api.cleanupSettingsPayload({ auto_confidence: .95, catalogue: [{ name: 'CSCS', expiry_field_id: '1.5' }] }), /positive JobAdder/);
-  const value = api.cleanupSettingsPayload({ auto_confidence: .95, catalogue: [{ key: 'cscs', expiry_field_id: '123', categories: 'Labourer, Trades' }], renewal_reminder_days: 7 });
-  assert.equal(value.catalogue[0].expiry_field_id, 123); assert.deepEqual(Array.from(value.catalogue[0].categories), ['Labourer', 'Trades']);
+  const value = api.cleanupSettingsPayload({ auto_confidence: .95, catalogue: [{ key: 'cscs', expiry_field_id: 'bad', categories: 'Old Categories', grade_categories_json: 'invalid' }], renewal_reminder_days: 7 });
+  assert.equal(value.catalogue, undefined);
   assert.deepEqual(Array.from(value.notice_days), [60, 30, 0]); assert.equal(value.messaging_enabled, false);
 });
 test('sales settings enforce daily caps and a separate sending mailbox', () => {
@@ -38,7 +37,7 @@ test('evidence links cannot execute scripts or open data documents', () => {
 const mail = load('components/jigsaw/microsoft365-workflows.tsx');
 test('email workflow saves an explicit notification pause and communication setting', () => {
   const draft = mail.workflowDraft({ mailboxes: [], notifications_paused: true, record_communications: true, client_secret: 'never' });
-  const payload = mail.workflowPayload(draft, []);
+  const payload = mail.workflowPayload(draft);
   assert.equal(payload.notifications_paused, true); assert.equal(payload.record_communications, true); assert.equal(payload.client_secret, undefined);
 });
 test('held business notification has a review decision while duplicate or sent emails cannot resend', () => {

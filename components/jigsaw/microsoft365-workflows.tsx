@@ -9,12 +9,6 @@ import { RecordContactSelector } from './record-contact-selector';
 const BASE = 'integrations/microsoft365/';
 const ROOT = '/dashboard/ai-jigsaw';
 const PAGE_SIZE = 30;
-const DOCUMENTS = [
-  ['Passport', true], ['Driving Licence', true], ['Biometric Residence Permit', true],
-  ['Right To Work Share Code', false], ['Birth Certificate', false], ['National Insurance Evidence', false],
-  ['Proof Of Address', false], ['CSCS Card', true], ['First Aid Certificate', true], ['Forklift Licence', true],
-  ['PVG / Disclosure', false], ['Trade Certificate / Qualification', false], ['CV', false], ['Other Document', false],
-] as const;
 const COLORS: Record<string, string> = { green: 'Completed', amber: 'Check needed', red: 'Failed / attention needed', blue: 'Queued / information' };
 const STATUSES = ['queued', 'processing', 'completed', 'needs_review', 'needs_match', 'waiting_media', 'failed', 'observed'];
 const errorText = (error: unknown) => error instanceof Error ? error.message : 'Unable to complete this request.';
@@ -38,10 +32,9 @@ export function workflowDraft(config: JsonRecord): JsonRecord {
     forward_timesheets: !!config.forward_timesheets, process_documents: !!config.process_documents, notify_orders: !!config.notify_orders,
     create_new_clients: !!config.create_new_clients, webhooks_enabled: !!config.webhooks_enabled,
     record_communications: !!config.record_communications, notifications_paused: !!config.notifications_paused,
-    document_fields: config.document_fields && typeof config.document_fields === 'object' ? config.document_fields : {},
   };
 }
-export function workflowPayload(draft: JsonRecord, types: JsonRecord[]): JsonRecord {
+export function workflowPayload(draft: JsonRecord): JsonRecord {
   const payload: JsonRecord = {
     mailboxes: [...new Set((draft.mailboxes as string[]).map(email => email.toLowerCase()))], sync_enabled: !!draft.sync_enabled,
     internal_domains: emailList(String(draft.internal_domains || '')), notify_from: String(draft.notify_from || '').trim().toLowerCase(),
@@ -58,17 +51,6 @@ export function workflowPayload(draft: JsonRecord, types: JsonRecord[]): JsonRec
   if ((payload.forward_timesheets || payload.notify_orders) && !payload.mailboxes.includes(payload.notify_from)) throw new Error('Choose a sending mailbox from the selected staff mailboxes.');
   if (payload.forward_timesheets && !payload.timesheets_to) throw new Error('Enter the payroll recipient for hours and timesheets.');
   if (payload.notify_orders && !payload.orders_notify_to) throw new Error('Enter the recipient for client orders and enquiries.');
-  const configured = draft.document_fields || {};
-  payload.document_fields = Object.fromEntries(types.map(type => {
-    const row = configured[type.name] || {};
-    const identifier = (key: string) => {
-      if (row[key] === '' || row[key] == null) return null;
-      const value = Number(row[key]);
-      if (!Number.isSafeInteger(value) || value < 1) throw new Error(`Use a positive JobAdder field ID for ${type.name}, or leave it blank.`);
-      return value;
-    };
-    return [type.name, { attachment_type: row.attachment_type || type.attachment_type || 'Other', issue_date_field_id: identifier('issue_date_field_id'), expiry_date_field_id: identifier('expiry_date_field_id'), requires_expiry: row.requires_expiry == null ? !!type.requires_expiry : !!row.requires_expiry }];
-  }));
   return payload;
 }
 function Panel({ title, subtitle, children, action }: { title: string; subtitle?: string; children: ReactNode; action?: ReactNode }) {
@@ -83,7 +65,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 function Loading() { return <p className="jigsaw-inline" role="status"><Loader2 size={16} className="animate-spin" />Loading Microsoft 365 settings…</p>; }
 
 export function Microsoft365Workflows() {
-  const [status, setStatus] = useState<JsonRecord | null>(null), [draft, setDraft] = useState<JsonRecord | null>(null), [mailboxes, setMailboxes] = useState<JsonRecord[]>([]), [dateFields, setDateFields] = useState<JsonRecord[]>([]);
+  const [status, setStatus] = useState<JsonRecord | null>(null), [draft, setDraft] = useState<JsonRecord | null>(null), [mailboxes, setMailboxes] = useState<JsonRecord[]>([]);
   const [loading, setLoading] = useState(true), [busy, setBusy] = useState(''), [failure, setFailure] = useState(''), [mailboxFailure, setMailboxFailure] = useState(''), [feedback, setFeedback] = useState(''), [revision, setRevision] = useState(0);
   const load = useCallback(async () => {
     setLoading(true); setFailure('');
@@ -100,20 +82,17 @@ export function Microsoft365Workflows() {
   }, []);
   useEffect(() => { let active = true; if (active) void load(); return () => { active = false; }; }, [load]);
   const update = (key: string, value: unknown) => setDraft(previous => previous ? { ...previous, [key]: value } : previous);
-  const types: JsonRecord[] = status?.document_types?.length ? status.document_types : DOCUMENTS.map(([name, requires_expiry]) => ({ name, requires_expiry, attachment_type: name === 'CV' ? 'Resume' : 'Other' }));
   const selected: string[] = draft?.mailboxes || [];
   const choices = [...new Set([...mailboxes.map(row => row.email), ...selected])].sort();
-  const changeField = (name: string, key: string, value: unknown) => update('document_fields', { ...(draft?.document_fields || {}), [name]: { ...(draft?.document_fields?.[name] || {}), [key]: value } });
   const save = async (event: FormEvent) => {
     event.preventDefault(); if (!draft) return; setBusy('save'); setFailure(''); setFeedback('');
-    try { const updated = await jigsaw<JsonRecord>('integrations/connections/microsoft365/', 'PATCH', { config: workflowPayload(draft, types) }); setDraft(workflowDraft(updated.config || {})); setFeedback('Microsoft 365 workflow settings saved. Review observed cases before enabling Live automations.'); setStatus(await jigsaw(`${BASE}status/`)); }
+    try { const updated = await jigsaw<JsonRecord>('integrations/connections/microsoft365/', 'PATCH', { config: workflowPayload(draft) }); setDraft(workflowDraft(updated.config || {})); setFeedback('Microsoft 365 workflow settings saved. Review observed cases before enabling Live automations.'); setStatus(await jigsaw(`${BASE}status/`)); }
     catch (error) { setFailure(errorText(error)); } finally { setBusy(''); }
   };
   const pauseNotifications = async (paused: boolean) => {
     setBusy('notifications'); setFailure(''); setFeedback('');
     try { const updated = await jigsaw<JsonRecord>('integrations/connections/microsoft365/', 'PATCH', { config: { notifications_paused: paused } }); setDraft(previous => previous ? { ...previous, notifications_paused: !!updated.config?.notifications_paused } : previous); setStatus(await jigsaw(`${BASE}status/`)); setFeedback(paused ? 'Client enquiry emails paused. Mail import, document filing and payroll routing continue.' : 'Client enquiry emails resumed with duplicate and relevance checks.'); } catch (error) { setFailure(errorText(error)); } finally { setBusy(''); }
   };
-  const loadDateFields = async () => { setBusy('fields'); setFailure(''); try { const data = await jigsaw<JsonRecord>(`${BASE}document-fields/`); setDateFields(results(data)); setFeedback('Candidate Date fields loaded. Choose a suggested field by name; blank skips that custom field.'); } catch (error) { setFailure(errorText(error)); } finally { setBusy(''); } };
   const sync = async () => {
     setBusy('sync'); setFailure(''); setFeedback('');
     try { const response = await jigsaw<JsonRecord>(`${BASE}sync/`, 'POST', {}); setFeedback(response.detail || 'Mailbox catch-up queued. Refresh activity to see background progress.'); setRevision(value => value + 1); setStatus(await jigsaw(`${BASE}status/`)); }
@@ -150,9 +129,7 @@ export function Microsoft365Workflows() {
         <label className="jigsaw-inline jigsaw-small"><input type="checkbox" checked={draft.record_communications} disabled={!!busy} onChange={event => update('record_communications', event.target.checked)} />Save relevant applicant and client communications to their JobAdder records</label>
         <label className="jigsaw-inline jigsaw-small"><input type="checkbox" checked={draft.create_new_clients} disabled={!!busy} onChange={event => update('create_new_clients', event.target.checked)} />Create a new JobAdder company/contact for an unmatched client order or enquiry</label>
         <Notice>Keep Alerts only selected while checking real cases. Live actions use these recipients and the existing ATS/WhatsApp connections. Missing, unreadable, expired or mismatched documents need review; AI checks do not verify identity or right to work. Generated KID/TOE delivery keeps its existing payment-choice and timing rules.</Notice>
-        <details className="jigsaw-form"><summary className="cursor-pointer"><strong>JobAdder document type and date-field mapping</strong></summary><p className="jigsaw-small">Date field IDs come from your JobAdder candidate custom fields. Leave an ID blank to skip that custom field; the file can still be saved. Choose the fields your administrator created for that document type.</p>
-          <button type="button" className="jigsaw-btn" disabled={!!busy} onClick={loadDateFields}>{busy === 'fields' ? 'Loading…' : 'Load candidate Date fields from JobAdder'}</button><datalist id="m365-candidate-date-fields">{dateFields.map(field => <option key={field.field_id} value={field.field_id}>{field.name}</option>)}</datalist><div className="jigsaw-table-wrap"><table className="jigsaw-table"><thead><tr><th>Document</th><th>Attachment type</th><th>Issue field ID</th><th>Expiry field ID</th><th>Requires expiry</th></tr></thead><tbody>{types.map(type => { const row = draft.document_fields?.[type.name] || {}; const attachment = row.attachment_type || type.attachment_type || 'Other'; return <tr key={type.name}><td><strong>{type.name}</strong></td><td><select className="jigsaw-input" aria-label={`${type.name} attachment type`} value={attachment} disabled={!!busy} onChange={event => changeField(type.name, 'attachment_type', event.target.value)}>{[...new Set(['Other', 'Resume', 'FormattedResume', 'CoverLetter', 'Screening', 'Check', 'Reference', 'License', attachment])].map(value => <option value={value} key={value}>{value}</option>)}</select></td><td><input className="jigsaw-input" type="number" list="m365-candidate-date-fields" min="1" step="1" aria-label={`${type.name} issue date field ID`} value={row.issue_date_field_id ?? ''} disabled={!!busy} onChange={event => changeField(type.name, 'issue_date_field_id', event.target.value)} /></td><td><input className="jigsaw-input" type="number" list="m365-candidate-date-fields" min="1" step="1" aria-label={`${type.name} expiry date field ID`} value={row.expiry_date_field_id ?? ''} disabled={!!busy} onChange={event => changeField(type.name, 'expiry_date_field_id', event.target.value)} /></td><td><input type="checkbox" aria-label={`${type.name} requires expiry`} checked={row.requires_expiry == null ? !!type.requires_expiry : !!row.requires_expiry} disabled={!!busy} onChange={event => changeField(type.name, 'requires_expiry', event.target.checked)} /></td></tr>; })}</tbody></table></div>
-        </details>
+        <Notice>Candidate files are uploaded directly to the matched JobAdder candidate’s Documents section. Printed expiry dates are saved on the document automatically when readable.</Notice>
         <div><button type="submit" className="jigsaw-btn jigsaw-btn-primary" disabled={!!busy}>{busy === 'save' ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}Save mailbox workflows</button></div>
       </form>
     </Panel>}
