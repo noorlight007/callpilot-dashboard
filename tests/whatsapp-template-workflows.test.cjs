@@ -24,7 +24,7 @@ const mapping = { approved: true, provider: 'telnyx', template_id: 'provider-tem
 
 test('workflow settings omit generated KID/TOE while explaining optional automations', () => {
   const keys = Array.from(WHATSAPP_TEMPLATE_WORKFLOWS, row => row.key);
-  assert.deepEqual(keys, ['document_request', 'onboarding_start', 'shift_offer', 'missed_call_reply', 'document_chaser', 'shift_filled', 'order_alert']);
+  assert.deepEqual(keys, ['document_request', 'onboarding_start', 'shift_offer', 'missed_call_reply', 'document_chaser', 'certificate_renewal', 'shift_filled', 'order_alert']);
   for (const key of ['shift_offer', 'document_chaser', 'shift_filled', 'order_alert']) {
     const row = WHATSAPP_TEMPLATE_WORKFLOWS.find(row => row.key === key);
     assert.equal(row.optional, true);

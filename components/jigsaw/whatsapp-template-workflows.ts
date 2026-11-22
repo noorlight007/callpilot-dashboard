@@ -6,6 +6,7 @@ export const WHATSAPP_TEMPLATE_WORKFLOWS = [
   { key: 'shift_offer', optional: true, description: 'Use only for candidate shift-fill automation. Asks suitable candidates whether they are available for a shift.' },
   { key: 'missed_call_reply', optional: true, description: 'Use only for missed-call follow-up. Acknowledges the missed call and tells the caller a consultant will call back.' },
   { key: 'document_chaser', optional: true, description: 'Use only for automatic document reminders after the configured delay. An approved template is needed outside the 24-hour reply window; leaving this mapping empty does not turn reminders off.' },
+  { key: 'certificate_renewal', optional: true, description: 'Use for certificate expiry renewal notices and their reminder. Use {message} to carry the certificate and expiry details. Configure renewal stages in ATS → Candidate Cleanup.' },
   { key: 'shift_filled', optional: true, description: 'Use only for candidate shift-fill automation. Tells other candidates who replied that the shift has now been filled.' },
   { key: 'order_alert', optional: true, description: 'Use only when client order alerts are sent by WhatsApp or both email and WhatsApp. Notifies the consultant or configured staff number about a new held job draft.' },
 ] as const;
