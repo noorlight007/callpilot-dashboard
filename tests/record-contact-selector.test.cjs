@@ -23,7 +23,7 @@ function harness(props = {}) {
   vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2020 } }).outputText, {
     module, exports: module.exports, Number, Error, encodeURIComponent,
     window: { setTimeout(callback) { timers.set(++timerId, callback); return timerId; }, clearTimeout(id) { timers.delete(id); } },
-    require: name => name === 'react' ? hooks : name === 'lucide-react' ? { ArrowLeft: () => null, ArrowRight: () => null, Search: () => null } : name === '@/services/jigsaw-service' ? { jigsaw: (...args) => { const request = deferred(); requests.push({ args, ...request }); return request.promise; }, results: value => value?.results || [] } : requireProject(name),
+    require: name => name === 'react' ? hooks : name === 'lucide-react' ? { ArrowLeft: () => null, ArrowRight: () => null, Search: () => null } : name === '@/services/jigsaw-service' ? { contactRoles: contact => Array.from(new Set([contact.kind, ...(contact.roles || [])])), jigsaw: (...args) => { const request = deferred(); requests.push({ args, ...request }); return request.promise; }, results: value => value?.results || [] } : requireProject(name),
   });
   const input = { value: '', onChange(value) { input.value = value; changes.push(value); }, ...props };
   return {
@@ -105,4 +105,16 @@ test('search errors disable selection until an explicit retry succeeds', async (
   assert.equal(h.requests.length, 2);
   h.requests[1].resolve({ results: [contact('retry')], count: 1 }); await settle();
   assert.equal(byLabel(h.render(), 'Select matching ATS record').props.disabled, false);
+});
+
+
+test('one contact with both roles remains selectable as a candidate', async () => {
+  const h = harness({ candidateOnly: true }); h.render();
+  h.requests[0].resolve({ results: [{ ...contact('person', 'client'), roles: ['candidate', 'client'], ats_records: [{ kind: 'candidate', ats_id: 'candidate-record' }, { kind: 'client', ats_id: 'client-record' }] }], count: 1 }); await settle();
+  const select = byLabel(h.render(), 'Select matching ATS record');
+  assert.match(text(select), /Record person.*Client \/ Candidate/);
+  assert.match(text(select), /ATS #candidate-record/);
+  assert.doesNotMatch(text(select), /client-record/);
+  select.props.onChange({ target: { value: 'person' } });
+  assert.equal(h.props.value, 'person');
 });

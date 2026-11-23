@@ -2,9 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { ArrowLeft, ArrowRight, Search } from 'lucide-react';
-import { jigsaw, results, type Contact, type JsonRecord } from '@/services/jigsaw-service';
+import { contactRoles, jigsaw, results, type Contact, type JsonRecord } from '@/services/jigsaw-service';
 
 const PAGE_SIZE = 50;
+const atsLabels = (contact: Contact, kind: string) => (contact.ats_records?.length ? contact.ats_records : [{ kind: contact.kind, ats_id: contact.ats_id }])
+  .filter((record) => !kind || record.kind === kind)
+  .map((record) => `ATS #${record.ats_id} (${record.kind})`).join(' · ');
 type Props = {
   value: string;
   onChange: (uid: string) => void;
@@ -36,7 +39,7 @@ export function RecordContactSelector({ value, onChange, disabled = false, candi
     return () => { active = false; };
   }, [search, activeKind, offset, retry, revision]);
 
-  const contacts = results<Contact>(data).filter((contact) => !!contact.ats_id && (!candidateOnly || contact.kind === 'candidate'));
+  const contacts = results<Contact>(data).filter((contact) => !!contact.ats_id && (!candidateOnly || contactRoles(contact).includes('candidate')));
   const selected = contacts.find((contact) => contact.uid === value);
   const busy = disabled || loading || waitingForSearch;
   const changePage = (nextOffset: number) => { onChange(''); setOffset(nextOffset); };
@@ -58,7 +61,7 @@ export function RecordContactSelector({ value, onChange, disabled = false, candi
       {candidateOnly ? 'Candidate receiving these documents' : 'Correct ATS record'}
       <select className="jigsaw-input" aria-label="Select matching ATS record" value={selected ? value : ''} disabled={busy || !!error || !contacts.length} onChange={(event) => onChange(event.target.value)}>
         <option value="">{loading || waitingForSearch ? 'Searching ATS records…' : 'Choose the correct ATS record…'}</option>
-        {contacts.map((contact) => <option key={contact.uid} value={contact.uid}>{contact.name} · {contact.kind === 'candidate' ? 'Candidate' : contact.kind === 'client' ? 'Client' : contact.kind} · {contact.phone || contact.email || 'No contact details'}{contact.phone && contact.email ? ` · ${contact.email}` : ''} · ATS #{contact.ats_id}</option>)}
+        {contacts.map((contact) => <option key={contact.uid} value={contact.uid}>{contact.name} · {contactRoles(contact).map((role) => role === 'candidate' ? 'Candidate' : role === 'client' ? 'Client' : role).join(' / ')} · {contact.phone || contact.email || 'No contact details'}{contact.phone && contact.email ? ` · ${contact.email}` : ''} · {atsLabels(contact, activeKind)}</option>)}
       </select>
     </label>
     {error ? <div role="alert" className="jigsaw-small"><span>{error}</span> <button type="button" className="jigsaw-link" disabled={disabled} onClick={() => setRetry((previous) => previous + 1)}>Try again</button></div> : <div className="jigsaw-inline" aria-live="polite">
@@ -66,6 +69,6 @@ export function RecordContactSelector({ value, onChange, disabled = false, candi
       {data.previous != null && <button type="button" className="jigsaw-btn" aria-label="Previous matching ATS records" disabled={busy} onClick={() => changePage(Number(data.previous))}><ArrowLeft size={14} />Previous</button>}
       {data.next != null && <button type="button" className="jigsaw-btn" aria-label="Next matching ATS records" disabled={busy} onClick={() => changePage(Number(data.next))}>Next<ArrowRight size={14} /></button>}
     </div>}
-    {selected && <div className="jigsaw-small" style={{ overflowWrap: 'anywhere' }}><div>Selected: {selected.name} · {selected.kind === 'candidate' ? 'Candidate' : selected.kind === 'client' ? 'Client' : selected.kind} · ATS #{selected.ats_id}</div><div>{[selected.phone, selected.email].filter(Boolean).join(' · ')}</div></div>}
+    {selected && <div className="jigsaw-small" style={{ overflowWrap: 'anywhere' }}><div>Selected: {selected.name} · {contactRoles(selected).map((role) => role === 'candidate' ? 'Candidate' : role === 'client' ? 'Client' : role).join(' / ')} · {atsLabels(selected, activeKind)}</div><div>{[selected.phone, selected.email].filter(Boolean).join(' · ')}</div></div>}
   </div>;
 }
