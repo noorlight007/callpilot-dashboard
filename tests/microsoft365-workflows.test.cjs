@@ -13,7 +13,7 @@ vm.runInNewContext(ts.transpileModule(moduleSource, { compilerOptions: { module:
   module: exportsObject, exports: exportsObject.exports, Date, Number, Object, String, Set, Error, Array, URL, encodeURIComponent,
   require: name => name === 'react' ? React : name === 'react/jsx-runtime' ? require(path.join(project, 'node_modules/react/jsx-runtime')) : name === 'next/link' ? { default: props => React.createElement('a', props, props.children) } : name === 'lucide-react' ? { Mail: () => null, Info: () => null } : name === './record-contact-selector' ? { RecordContactSelector: () => React.createElement('span', null, 'Search records') } : name === '@/services/jigsaw-service' ? { jigsaw() {}, results: d => d?.results || [] } : require(name),
 });
-const { workflowDraft, workflowPayload, emailList, ImportedEmail } = exportsObject.exports;
+const { workflowDraft, workflowPayload, emailList, ImportedEmail, workflowReviewMessage } = exportsObject.exports;
 const ready = () => workflowDraft({ mailboxes: ['staff@example.test'], notify_from: 'staff@example.test', timesheets_to: 'payroll@example.test', orders_notify_to: 'orders@example.test' });
 test('workflow payload is limited to routing settings and omits app secrets and tenant edits', () => {
   const payload = workflowPayload(workflowDraft({ ...ready(), tenant_id: 'not-resubmitted', client_secret: 'SECRET', internal_domains: ['company.test'] }));
@@ -40,3 +40,16 @@ test('mailbox/domain input normalizes and deduplicates values', () => { assert.d
 const html = automation => renderToStaticMarkup(React.createElement(ImportedEmail, { email: { uid: 'email1', subject: 'Test', sender: 'candidate@example.test', mailbox: 'staff@example.test', body: '<script>untrusted()</script>', match_state: 'unknown', automation }, onMatched() {} }));
 test('email shows document issues and escapes untrusted body text', () => { const result = html({ status: 'completed', issues: ['Printed holder name mismatch'], outcome: 'Saved with review needed' }); assert.match(result, /Printed holder name mismatch/); assert.match(result, /&lt;script&gt;/); assert.doesNotMatch(result, /<script>/); });
 test('completed and uncertain workflows do not offer a new record assignment', () => { assert.doesNotMatch(html({ status: 'completed' }), /Link record and resume/); assert.doesNotMatch(html({ status: 'needs_review' }), /Link record and resume/); assert.match(html({ status: 'needs_match' }), /Link record and resume/); });
+
+
+test('unclear attachment content is described as a document check rather than an uncertain provider send', () => {
+  const message = workflowReviewMessage({ content_review_required: true });
+  assert.match(message, /Check the attachment content/);
+  assert.match(message, /affected files are held for a document check/);
+  assert.doesNotMatch(message, /uncertain send|provider result|contact selection/);
+});
+
+test('an actual uncertain provider send retains its separate outcome warning', () => {
+  assert.match(workflowReviewMessage({ content_review_required: false }), /Check the provider result/);
+  assert.match(workflowReviewMessage({}), /uncertain send is not retried automatically/);
+});
